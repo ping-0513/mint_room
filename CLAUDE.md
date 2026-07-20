@@ -335,7 +335,8 @@ Add project-specific commands and conventions below.
 
 ### Architecture notes
 
--
+- All OpenAI payload construction lives in `server/openai.mjs`; UI never builds payloads. See `docs/agent-handoff.md` for current state.
+- `docs/ux-design-testing-principles.md` is an ACTIVE guideline (not an ideas memo): read it before implementing or reviewing UI changes; keep its parity table and smoke script updated.
 
 ### User flow notes
 

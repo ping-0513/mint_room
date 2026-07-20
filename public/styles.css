@@ -149,6 +149,16 @@ details summary { cursor: pointer; color: var(--text-soft); margin: 8px 0; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
+/* Diary */
+.diary-actions { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+.diary-entry {
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px; margin-top: 10px;
+}
+.diary-head { display: flex; align-items: center; justify-content: space-between; }
+.diary-date { font-weight: 600; color: var(--mint); }
+.diary-text { margin: 8px 0 0; white-space: pre-wrap; word-break: break-word; }
+
 .placeholder-card { max-width: 560px; }
 .placeholder-card .btn { margin: 6px 8px 0 0; }
 

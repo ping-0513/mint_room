@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { MODELS, DEFAULT_MODEL, createChatResponse } from "./server/openai.mjs";
+import { MODELS, DEFAULT_MODEL, createChatResponse, createDiaryEntry } from "./server/openai.mjs";
 
 const PORT = Number(process.env.PORT) || 3000;
 // fileURLToPath keeps this working on Windows too (URL.pathname would not).
@@ -51,6 +51,22 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 400, { ok: false, error: "messages must be a non-empty array." });
       }
       const result = await createChatResponse(settings, messages, SAFETY_IDENTIFIER);
+      return sendJSON(res, result.ok ? 200 : 502, result);
+    }
+
+    if (url.pathname === "/api/diary" && req.method === "POST") {
+      const body = await readBody(req);
+      let parsed;
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        return sendJSON(res, 400, { ok: false, error: "Invalid JSON body." });
+      }
+      const { settings = {}, snapshot } = parsed ?? {};
+      if (!snapshot || typeof snapshot.date !== "string") {
+        return sendJSON(res, 400, { ok: false, error: "snapshot with a date is required." });
+      }
+      const result = await createDiaryEntry(settings, snapshot, SAFETY_IDENTIFIER);
       return sendJSON(res, result.ok ? 200 : 502, result);
     }
 

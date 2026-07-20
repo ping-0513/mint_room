@@ -7,6 +7,7 @@ const LS = {
   settings: "mintroom.settings.v1",
   chat: "mintroom.chat.v1",
   life: "mintroom.life.v1",
+  diary: "mintroom.diary.v1",
 };
 
 const DEFAULT_SETTINGS = {
@@ -34,8 +35,10 @@ let life = loadJSON(LS.life, {
   wakeTime: "", sleepTime: "",
   tasks: [], shopping: [], medication: [], // [{text, done}]
 });
+let diary = loadJSON(LS.diary, { entries: {} }); // entries keyed by "YYYY-MM-DD"
 let serverModels = null; // fetched from /api/status
 let sending = false;     // double-send guard
+let diaryBusy = false;   // double-generate guard
 
 function loadJSON(key, fallback) {
   try {
@@ -123,13 +126,13 @@ async function sendMessage() {
   const text = chatInput.value.trim();
   if (!text) return;
   hideError();
-  chat.messages.push({ role: "user", content: text });
+  chat.messages.push({ role: "user", content: text, ts: Date.now() });
   chatInput.value = "";
   sending = true;
   renderChat();
   try {
     const reply = await callChatAPI(chat.messages);
-    chat.messages.push({ role: "assistant", content: reply });
+    chat.messages.push({ role: "assistant", content: reply, ts: Date.now() });
     save(LS.chat, chat);
   } catch (err) {
     // Roll back the optimistic user turn so Retry re-sends cleanly.
@@ -156,7 +159,7 @@ async function regenerate() {
   renderChat();
   try {
     const reply = await callChatAPI(chat.messages);
-    chat.messages.push({ role: "assistant", content: reply });
+    chat.messages.push({ role: "assistant", content: reply, ts: Date.now() });
     save(LS.chat, chat);
   } catch (err) {
     chat.messages.push(...removed); // restore previous reply on failure
@@ -351,10 +354,110 @@ function renderCalendar() {
 $("calPrev").addEventListener("click", () => { calCursor.setMonth(calCursor.getMonth() - 1); renderCalendar(); });
 $("calNext").addEventListener("click", () => { calCursor.setMonth(calCursor.getMonth() + 1); renderCalendar(); });
 
+/* ---------- AI diary ---------- */
+// The assistant writes its own gentle diary about the master's day.
+// Raw generation happens server-side (/api/diary); entries live in localStorage.
+const diaryWriteBtn = $("diaryWriteBtn"), diaryStatus = $("diaryStatus"),
+  diaryError = $("diaryError"), diaryErrorText = $("diaryErrorText");
+
+function todayKey(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function buildDiarySnapshot() {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const todays = chat.messages.filter((m) => m.ts && m.ts >= start.getTime());
+  return {
+    date: todayKey(),
+    visitedToday: todays.length > 0,
+    conversation: todays.slice(-30).map((m) => ({ role: m.role, content: String(m.content).slice(0, 500) })),
+    life: {
+      tasksDone: life.tasks.filter((t) => t.done).length,
+      tasksTotal: life.tasks.length,
+      medsDone: life.medication.filter((m) => m.done).length,
+      medsTotal: life.medication.length,
+      shoppingCount: life.shopping.length,
+      wakeTime: life.wakeTime,
+      sleepTime: life.sleepTime,
+    },
+  };
+}
+
+function renderDiary() {
+  const wrap = $("diaryEntries");
+  wrap.innerHTML = "";
+  const dates = Object.keys(diary.entries).sort().reverse();
+  if (dates.length === 0) {
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = "No entries yet. Ask for today's entry to start the diary. 🌿";
+    wrap.appendChild(p);
+  }
+  for (const date of dates) {
+    const e = diary.entries[date];
+    const card = document.createElement("div");
+    card.className = "diary-entry";
+    const head = document.createElement("div");
+    head.className = "diary-head";
+    const title = document.createElement("span");
+    title.className = "diary-date";
+    title.textContent = `📔 ${date}${e.mock ? " (mock)" : ""}`;
+    const del = document.createElement("button");
+    del.className = "btn small ghost";
+    del.textContent = "✕";
+    del.title = "Delete this entry";
+    del.addEventListener("click", () => {
+      if (!confirm(`Delete the diary entry for ${date}?`)) return;
+      delete diary.entries[date];
+      save(LS.diary, diary);
+      renderDiary();
+    });
+    head.append(title, del);
+    const body = document.createElement("p");
+    body.className = "diary-text";
+    body.textContent = e.text;
+    card.append(head, body);
+    wrap.appendChild(card);
+  }
+  diaryWriteBtn.textContent = diary.entries[todayKey()] ? "Rewrite today's entry" : "Ask for today's entry";
+  diaryWriteBtn.disabled = diaryBusy;
+  diaryStatus.textContent = diaryBusy ? "✨ writing…" : "";
+}
+
+async function generateDiary() {
+  if (diaryBusy) return; // double-generate guard
+  diaryBusy = true;
+  diaryError.classList.add("hidden");
+  renderDiary();
+  try {
+    const res = await fetch("/api/diary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ settings, snapshot: buildDiarySnapshot() }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!data?.ok) throw new Error(data?.error || `Request failed (HTTP ${res.status})`);
+    // Existing entry is only replaced after a successful response.
+    diary.entries[todayKey()] = { text: data.text, generatedAt: Date.now(), mock: Boolean(data.mock) };
+    save(LS.diary, diary);
+  } catch (err) {
+    diaryErrorText.textContent = err.message;
+    diaryError.classList.remove("hidden");
+  } finally {
+    diaryBusy = false;
+    renderDiary();
+  }
+}
+
+diaryWriteBtn.addEventListener("click", generateDiary);
+$("diaryDismissBtn").addEventListener("click", () => diaryError.classList.add("hidden"));
+
 /* ---------- Init ---------- */
 applyTheme();
 bindSettings();
 renderChat();
 initLife();
 renderCalendar();
+renderDiary();
 loadServerStatus();

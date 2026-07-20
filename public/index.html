@@ -14,6 +14,7 @@
       <button class="tab active" data-tab="chat">💬 Chat</button>
       <button class="tab" data-tab="life">🌱 Life</button>
       <button class="tab" data-tab="calendar">📅 Calendar</button>
+      <button class="tab" data-tab="diary">📔 Diary</button>
       <button class="tab" data-tab="images">🖼️ Images</button>
       <button class="tab" data-tab="search">🔍 Search</button>
       <button class="tab" data-tab="settings">⚙️ Settings</button>
@@ -74,6 +75,23 @@
       </div>
       <div class="cal-grid" id="calGrid"></div>
       <p class="hint">Sample events shown for now — event editing is a planned next step. Markers: 🩺 health · 🛍️ errands · 🎀 fun · 📌 tasks</p>
+    </div>
+  </main>
+
+  <!-- DIARY -->
+  <main class="panel" id="panel-diary">
+    <div class="card">
+      <h2>📔 The assistant's diary</h2>
+      <p class="hint">Your assistant keeps its own gentle diary about your days — noticing things you might be too hard on yourself to see. Entries are written from today's conversation and Life data, stored only on this device.</p>
+      <div class="diary-actions">
+        <button class="btn primary" id="diaryWriteBtn">Ask for today's entry</button>
+        <span class="hint" id="diaryStatus"></span>
+      </div>
+      <div class="chat-error hidden" id="diaryError">
+        <span id="diaryErrorText"></span>
+        <button id="diaryDismissBtn" class="btn small ghost">Dismiss</button>
+      </div>
+      <div id="diaryEntries"></div>
     </div>
   </main>
 

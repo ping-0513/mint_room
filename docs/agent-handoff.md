@@ -38,6 +38,7 @@ No test framework exists yet.
 - Life tab: tasks / shopping / medication checklists + wake/sleep times, localStorage-persisted (`mintroom.life.v1`).
 - Calendar: month grid, prev/next, today highlight, **sample events only** (labeled in UI).
 - Theme: light/dark/system, mint identity kept in dark mode.
+- **AI diary (added 2026-07-20):** Diary tab where the assistant writes its own gentle entry about the master's day (design intent: a kind outside observer counters self-critical journaling). `POST /api/diary` + `buildDiaryPrompt`/`createDiaryEntry` in `server/openai.mjs` (prompt is a tested pure function; forbids guilt-tripping and invented events; absent days get a kind "didn't visit" entry). Snapshot = today's chat messages (chat messages now carry `ts` timestamps; pre-feature messages lack `ts` and are treated as not-today) + Life stats. Entries in localStorage `mintroom.diary.v1`, one per date, replaced only on successful regeneration; delete with confirm. Mock mode returns labeled mock entries.
 
 ## Mock/placeholder inventory (all labeled in the UI — nothing fakes results)
 
@@ -69,7 +70,7 @@ Not mapped yet (deliberately): `tools`, `stream`, `prompt_cache_key`, moderation
 
 ## Verification run
 
-- `npm test` → 11/11 pass (first unit tests, added 2026-07-20 brushup: `server/openai.test.mjs` covers payload mapping, capability gating, clamping, history trim via Node's built-in `node:test`; zero dependencies).
+- `npm test` → 16/16 pass (`server/openai.test.mjs`, Node built-in `node:test`, zero dependencies: 11 payload-mapping tests — capability gating, clamping, history trim — plus 5 diary-prompt tests). Diary endpoint smoke-tested via curl: visited/absent mock entries, missing snapshot → 400.
 - Brushup 2026-07-20 also fixed: Windows path handling (`fileURLToPath` instead of `URL.pathname`), percent-encoded static paths + hardened traversal guard (verified with curl `--path-as-is`, returns 403), 413 delivered for oversized bodies (was: connection killed before response), theme-toggle dead line, failed-send no longer clobbers newly typed input, model-fallback now persisted, "turns"→"messages" label honesty.
 - `npm run check` → pass (node --check on server.mjs, server/openai.mjs, public/app.js).
 - Server smoke test via curl: `/api/status` 200 with model list; `/api/chat` 200 mock reply; invalid JSON → 400; `/`, `/app.js`, `/styles.css` → 200 with correct content types.
@@ -93,6 +94,7 @@ Not mapped yet (deliberately): `tools`, `stream`, `prompt_cache_key`, moderation
 4. **Image input** — file input in Chat/Images → base64 `input_image` content part in the adapter. Keep payload construction in the adapter.
 5. **Web search + image generation** — Responses API `tools` wiring behind the disabled toggles.
 6. **Calendar events** — add/edit/delete events with localStorage, category markers (health/errand/fun/task already styled).
+6b. **Diary follow-ups** — configurable address term (マスター is currently the default in the server-side diary instructions); auto-suggest writing yesterday's entry on first visit of a new day (no background scheduler exists — the app must be open); optional Obsidian export of entries (see external-integrations memo).
 7. Optional later: migrate to Next.js/React/TypeScript; the adapter, settings schema, and localStorage keys should carry over.
 
 Constraints for the next agent: keep ALL OpenAI payload construction in `server/openai.mjs`; no DB/auth/deployment/accounts; settings stay in localStorage; never expose the API key client-side; keep placeholders honestly labeled; preserve the mint light/dark theme identity.

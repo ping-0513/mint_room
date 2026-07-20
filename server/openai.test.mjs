@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildResponsesPayload, findModel, MODELS, DEFAULT_MODEL } from "./openai.mjs";
+import { buildResponsesPayload, buildDiaryPrompt, findModel, MODELS, DEFAULT_MODEL } from "./openai.mjs";
 
 const msgs = (n) =>
   Array.from({ length: n }, (_, i) => ({ role: i % 2 ? "assistant" : "user", content: `m${i}` }));
@@ -76,4 +76,48 @@ test("every model in MODELS has required capability flags", () => {
     assert.equal(typeof m.supportsTemperature, "boolean");
     assert.equal(typeof m.supportsReasoningEffort, "boolean");
   }
+});
+
+// ---------- AI diary ----------
+
+const lifeStub = { tasksDone: 1, tasksTotal: 3, medsDone: 2, medsTotal: 2, shoppingCount: 4, wakeTime: "07:30", sleepTime: "23:00" };
+
+test("diary for a day the master visited includes the conversation and life data", () => {
+  const { instructions, userContent } = buildDiaryPrompt({
+    date: "2026-07-20",
+    visitedToday: true,
+    conversation: [{ role: "user", content: "スクワットした!" }, { role: "assistant", content: "えらい!姿勢に気をつけてね" }],
+    life: lifeStub,
+  });
+  assert.match(userContent, /master: スクワットした!/);
+  assert.match(userContent, /me: えらい!/);
+  assert.match(userContent, /tasks done 1\/3/);
+  assert.match(userContent, /wake-up target 07:30/);
+  assert.match(instructions, /diary/i);
+});
+
+test("diary for an absent day says the master did not visit, without conversation lines", () => {
+  const { userContent } = buildDiaryPrompt({ date: "2026-07-20", visitedToday: false, conversation: [], life: lifeStub });
+  assert.match(userContent, /did not visit/);
+  assert.ok(!userContent.includes("master:"));
+});
+
+test("diary instructions forbid guilt-tripping and inventing events", () => {
+  const { instructions } = buildDiaryPrompt({ date: "2026-07-20", visitedToday: false, life: {} });
+  assert.match(instructions, /never guilt-tripping/i);
+  assert.match(instructions, /Do not invent/i);
+  assert.match(instructions, /Absence is never framed as a failure/i);
+});
+
+test("diary conversation excerpt is capped at 30 messages and 500 chars each", () => {
+  const conversation = Array.from({ length: 50 }, (_, i) => ({ role: "user", content: "x".repeat(1000) + i }));
+  const { userContent } = buildDiaryPrompt({ date: "2026-07-20", visitedToday: true, conversation, life: {} });
+  const lines = userContent.split("\n").filter((l) => l.startsWith("master: "));
+  assert.equal(lines.length, 30);
+  assert.ok(lines[0].length <= 500 + "master: ".length);
+});
+
+test("diary prompt survives a missing life object", () => {
+  const { userContent } = buildDiaryPrompt({ date: "2026-07-20", visitedToday: false });
+  assert.match(userContent, /tasks done 0\/0/);
 });

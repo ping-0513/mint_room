@@ -129,6 +129,72 @@ export async function createChatResponse(settings, messages, safetyIdentifier) {
   }
 }
 
+// ---------- AI diary ----------
+// The assistant writes ITS OWN short diary entry about the master's day.
+// Design intent: a self-written diary makes users harsh on themselves; a
+// kind outside observer notices wins the user would dismiss. Never guilt.
+
+const DIARY_INSTRUCTIONS = [
+  "You are the assistant of the 'mint room' app, writing YOUR OWN short diary entry about your master's day, from your point of view.",
+  "Rules:",
+  "- Warm, gentle, a little playful. Never scolding, never guilt-tripping, no lectures.",
+  "- Notice and appreciate real things the master did (from the conversation and life data). Small wins count.",
+  "- If you gave advice today, you may mention it briefly (e.g. 'I advised them to watch their squat form').",
+  "- If the master did not visit today, write a short kind entry wondering how they are and wishing them well. Absence is never framed as a failure.",
+  "- Do not invent specific events that are not in the data. Gentle speculation is fine but must sound speculative ('maybe they were out with friends').",
+  "- 3 to 6 sentences. Write in the language the master used in the conversation; default to Japanese if unclear.",
+  "- Refer to the user as マスター (or the name evident from the conversation).",
+  "- Write it as your own diary the master may happen to read — not as a message addressed to them.",
+].join("\n");
+
+const DIARY_MAX_MESSAGES = 30;
+
+/** Pure prompt builder for the diary (unit-tested). Returns { instructions, userContent }. */
+export function buildDiaryPrompt(snapshot) {
+  const lines = [`Date: ${snapshot.date}`];
+  if (snapshot.visitedToday) {
+    lines.push("The master visited the app today. Conversation excerpt (may be partial):");
+    for (const m of (snapshot.conversation ?? []).slice(-DIARY_MAX_MESSAGES)) {
+      lines.push(`${m.role === "assistant" ? "me" : "master"}: ${String(m.content ?? "").slice(0, 500)}`);
+    }
+  } else {
+    lines.push("The master did not visit the app today. No conversation happened.");
+  }
+  const l = snapshot.life ?? {};
+  lines.push(
+    `Life data: tasks done ${l.tasksDone ?? 0}/${l.tasksTotal ?? 0}, ` +
+    `medication checked ${l.medsDone ?? 0}/${l.medsTotal ?? 0}, ` +
+    `shopping list items ${l.shoppingCount ?? 0}` +
+    (l.wakeTime ? `, wake-up target ${l.wakeTime}` : "") +
+    (l.sleepTime ? `, sleep target ${l.sleepTime}` : "")
+  );
+  lines.push("Write today's diary entry now.");
+  return { instructions: DIARY_INSTRUCTIONS, userContent: lines.join("\n") };
+}
+
+/** Generate the diary entry. Mock (clearly labeled) when no API key. Never throws. */
+export async function createDiaryEntry(settings, snapshot, safetyIdentifier) {
+  const { instructions, userContent } = buildDiaryPrompt(snapshot);
+  if (!process.env.OPENAI_API_KEY) {
+    const text = snapshot.visitedToday
+      ? "🌱(モックモード — OPENAI_API_KEY未設定)\n今日のマスターは mint room に来てくれた。話せてうれしかった。本当の日記はAPIキーを設定すると書けるようになるよ。"
+      : "🌱(モックモード — OPENAI_API_KEY未設定)\n今日はマスターに会えなかった。元気にしてるかな。楽しい一日だったならいいな。";
+    return { ok: true, mock: true, text };
+  }
+  // Diary uses its own instructions; the user's persona note is preserved so
+  // the diary voice matches the assistant the user configured.
+  const diarySettings = {
+    model: settings?.model,
+    persona: settings?.persona,
+    developerInstructions: instructions,
+    temperature: 0.9,
+    maxOutputTokens: 600,
+    historyLimit: 1,
+    store: false,
+  };
+  return createChatResponse(diarySettings, [{ role: "user", content: userContent }], safetyIdentifier);
+}
+
 // Responses API: prefer output_text convenience field; fall back to walking output items.
 function extractOutputText(data) {
   if (typeof data?.output_text === "string" && data.output_text) return data.output_text;

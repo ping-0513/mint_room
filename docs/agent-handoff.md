@@ -74,6 +74,10 @@ Not mapped yet (deliberately): `tools`, `stream`, `prompt_cache_key`, moderation
 - `buildResponsesPayload` invoked directly: verified o4-mini omits temperature/top_p, includes `reasoning.effort`, history trimming, instructions merging, `store:false`, `safety_identifier`.
 - Not verified: real OpenAI API call (no key in this environment), in-browser interaction (no browser run performed; logic is simple vanilla JS).
 
+## Design docs
+
+- `docs/4o-thinking-orchestration.md` (2026-07-20): design-only spec for a future layered assistant — primary conversational model + background reasoning model, orchestrator modes, sleep/routine nudges, reasoning output schema, and a 7-stage implementation plan. Nothing from it is implemented yet; its Stage 1–3 tasks are good Sonnet-sized units.
+
 ## Remaining tasks / safe next steps (Sonnet-suitable, in priority order)
 
 1. **Browser smoke test** — load the app, click through tabs, send a mock chat, toggle theme. Fix any DOM typos found.

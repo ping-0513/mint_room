@@ -52,7 +52,7 @@ export function parseCostLedger(raw, now = Date.now()) {
   };
 }
 
-// 可変aliasを選んでいた既存利用者だけを、明示された固定snapshotへ1回移行する。
+// 旧aliasが保存されている場合の防御的な安全網として、固定snapshotへ1回移行する。
 export function migrateStableModelSettings(value) {
   const source = isPlainObject(value) ? value : {};
   if (source.model !== "gpt-4o") return { settings: { ...source }, changed: false };

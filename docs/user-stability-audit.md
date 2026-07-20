@@ -8,7 +8,7 @@
 
 | 優先度 | リスク | 対応 |
 |---|---|---|
-| P1 | `gpt-4o` 可変aliasの中身が将来変わる | `gpt-4o-2024-11-20` へ固定。旧保存設定も同snapshotへ明示移行 |
+| P1 | `gpt-4o` 可変aliasの中身が将来変わる | `gpt-4o-2024-11-20` へ固定。旧aliasが保存されている場合だけ、防御的な安全網として同snapshotへ移行 |
 | P1 | 削除・未知モデルを黙って既定モデルへ変更し、そのまま課金する | サーバーはprovider呼び出し前に `invalid_model`。UIも選択を勝手に変更せず、選び直しを表示 |
 | P1 | `service_tier` がProject設定に追従して料金前提が変わる | `default` をリクエストへ明示。実tierも記録し、default以外へ標準料金を推測しない |
 | P1 | OpenAI応答のusageを捨て、利用額を確認できない | Response ID・usage・実モデル・tierを内容非保持の `usageEvents[]` へ変換。Chat/Diary/Newsを記録 |

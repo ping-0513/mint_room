@@ -15,6 +15,8 @@ Without an API key the app runs in clearly-labeled **mock mode** so the UI is fu
 
 When `OPENAI_API_KEY` is set, paid-provider endpoints only accept requests from the same computer (`localhost`). The app has no public authentication or rate limiting yet, so do not expose paid API access to a LAN or public host.
 
+The localhost guard assumes clients connect directly to the Node server and intentionally does not trust `X-Forwarded-*`. Do not put the app behind a same-host reverse proxy without an explicit trusted-proxy design, authentication, and rate limiting.
+
 ## What's here
 
 - **Chat** — GPT chat with regenerate, retry, loading states, localStorage history. OpenAI calls go through a server-side boundary (`POST /api/chat`); the key never reaches the browser.

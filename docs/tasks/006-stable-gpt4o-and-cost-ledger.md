@@ -11,7 +11,7 @@
 
 ## 受け入れ条件
 
-- モデル一覧の `gpt-4o` を `gpt-4o-2024-11-20` へ置き換え、既存保存設定の旧aliasは同snapshotへ1回移行する
+- モデル一覧では `gpt-4o-2024-11-20` だけを提供し、旧aliasが保存されている場合は防御的な安全網として同snapshotへ1回移行する
 - 未知・削除済みモデルを既定モデルへ黙って課金フォールバックせず、provider呼び出し前に明示エラーにする
 - Responses APIの実usage、Response ID、実モデル、service tierを内容非保持の `usageEvents[]` として返す
 - cached inputを通常inputと二重課金せず、版付きサーバー料金表と整数計算でUSD概算を出す。usage・料金・標準service tierが不明なら0円扱いしない
@@ -31,7 +31,7 @@
 
 ## 検証
 
-- `NODE_OPTIONS=--test-isolation=none npm test`
+- `npm test`（子プロセスを起動できないNode 24.13のsandboxでは `node --test --test-isolation=none`）
 - `npm run check` と `git diff --check`
 - APIキーなしのmockが台帳を増やさないこと
 - fixture usageでChatの今回額、期間の両端、全期間、再読み込み後の保持、逆転日付エラーをブラウザ確認
@@ -48,7 +48,7 @@
 ## 報告(実装者が記入)
 
 - 変更ファイル: スコープ記載のコード・テスト・ドキュメント。新規 `server/costs.mjs` と `public/costs.js` に料金計算と台帳純ロジックを分離。
-- 検証結果: 最終 `NODE_OPTIONS=--test-isolation=none npm test` は87/87成功。`npm run check` と `git diff --check` も成功。cached token、実モデル料金、複数タブ台帳merge、記録時タイムゾーンも回帰テスト化。in-app browserで固定モデル表示、mock非計上、fixtureの各回 `¥0.48 ($0.003)`、2回累計 `¥0.96 ($0.006)`、2026-07-20だけの期間計 `¥0.48`、逆転日付エラー、リロード保持を確認。dark mode・幅360pxで `scrollWidth === clientWidth` を確認。
+- 検証結果: 最終Node 24.13 sandboxの `node --test --test-isolation=none` は88/88成功。`npm run check` と `git diff --check` も成功。cached token、実モデル料金、複数タブ台帳merge、記録時タイムゾーン、USD/JPY設定の単一保存経路も回帰テスト化。in-app browserで固定モデル表示、mock非計上、fixtureの各回 `¥0.48 ($0.003)`、2回累計 `¥0.96 ($0.006)`、2026-07-20だけの期間計 `¥0.48`、逆転日付エラー、リロード保持を確認。dark mode・幅360pxで `scrollWidth === clientWidth` を確認。
 - 未確認・懸念: 実OpenAIキーと実請求書は利用できないため未確認。料金は公式ページを2026-07-20に確認したStandard料金の概算で、料金改定時は新しいpricing versionを追加する必要がある。自動為替・アカウント全体実額・別端末同期は意図的に含めない。
 
 ## レビュー(相手モデルが記入)

@@ -18,8 +18,6 @@ import {
   validateDateRange,
 } from "./costs.js";
 
-"use strict";
-
 const LS = {
   settings: "mintroom.settings.v1",
   chat: "mintroom.chat.v1",
@@ -625,16 +623,7 @@ function purposeLabel(purpose) {
 }
 
 function bindCostDashboard() {
-  // fill操作や日付ピッカー選択の時点で即座に集計へ反映する。
-  $("set-usdJpyRate").addEventListener("input", (event) => {
-    const nextValue = event.target.value.trim();
-    if (nextValue !== "" && parseFxRateToMicros(nextValue) === null) return;
-    settings.usdJpyRate = nextValue;
-    if (!save(LS.settings, settings)) {
-      costSettingsWarning = "USD/JPY設定を保存できませんでした。再読み込み後に失われます。";
-    } else costSettingsWarning = "";
-    renderCostDashboard();
-  });
+  // 日付ピッカー選択の時点で即座に集計へ反映する。
   $("costFrom").addEventListener("input", (event) => {
     costRange = { ...costRange, from: event.target.value };
     renderCostDashboard();

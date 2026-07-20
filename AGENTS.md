@@ -6,7 +6,7 @@ This file is written for ALL coding agents (Codex/GPT-5.6 Sol, Claude, others). 
 
 ## Task tickets — how work is assigned here
 
-This repo runs a Claude × Codex collaboration protocol (`docs/collaboration-protocol.md`). If the user says "do task NNN" (or you find tickets in `docs/tasks/`): the ticket IS your scope. Set its Status to IN PROGRESS, fill 実装前メモ before coding on non-trivial work, implement within the ticket's file list, run its 検証 section, fill the 報告 section honestly, set Status to REVIEW. **Use your maximum reasoning effort — usage cost is explicitly not a concern in this environment; thinking harder is always preferred.** Do not edit ACTIVE guideline files directly; propose changes in your ticket's 報告 section instead.
+This repo runs a Claude × Codex collaboration protocol (`docs/collaboration-protocol.md`). If the user says "do task NNN" (or you find tickets in `docs/tasks/`): the ticket IS your scope. Set its Status to IN PROGRESS, fill 実装前メモ before coding on non-trivial work, implement within the ticket's file list, run its 検証 section, fill the 報告 section honestly, set Status to REVIEW. **Use your maximum reasoning effort — usage cost is explicitly not a concern in this environment; thinking harder is always preferred.** Do not edit ACTIVE guideline files directly; propose changes in your ticket's 報告 section instead. **Exception — live registries:** the parity table (§1) and smoke script (§4) inside `docs/ux-design-testing-principles.md`, and `docs/agent-handoff.md`, are status records that implementers MUST update when their change affects them; updating those rows/steps is required, not forbidden.
 
 ## Read first, in this order
 
@@ -14,6 +14,7 @@ This repo runs a Claude × Codex collaboration protocol (`docs/collaboration-pro
 2. `docs/master-preferences.md` — the user's standing requirements (ACTIVE guideline).
 3. `docs/ux-design-testing-principles.md` — design/testing rules, parity table, smoke script (ACTIVE guideline).
 4. `CLAUDE.md` — operating contract.
+5. Before any UI change: `docs/ui-recipes.md`. For how work is assigned: `docs/collaboration-protocol.md`.
 
 Documents marked **IDEAS ONLY** describe unbuilt designs. Never treat them as existing features and never implement them unprompted.
 

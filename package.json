@@ -2,7 +2,7 @@
   "name": "mint-room",
   "version": "0.1.0",
   "private": true,
-  "description": "Cute, practical, GPT-powered personal assistant web app (mint room). Zero-dependency Node server + static frontend.",
+  "description": "Cute, practical, GPT-powered personal assistant web app (mint room). Minimal-dependency Node server + static frontend.",
   "type": "module",
   "scripts": {
     "start": "node server.mjs",

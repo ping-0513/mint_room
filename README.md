@@ -5,20 +5,25 @@ A cute, practical, GPT-powered personal assistant web app — a "gentle intellig
 ## Quick start
 
 ```bash
-cp .env.example .env        # optional: add your OPENAI_API_KEY
-export OPENAI_API_KEY=sk-... # or export directly
+npm install                  # one small dependency (fast-xml-parser, for news RSS)
+export OPENAI_API_KEY=sk-... # optional; see .env.example
 npm start                    # → http://localhost:3000
+npm test                     # unit tests (node:test, no test framework needed)
 ```
 
-No dependencies to install. Without an API key the app runs in clearly-labeled **mock mode** so the UI is fully testable.
+Without an API key the app runs in clearly-labeled **mock mode** so the UI is fully testable.
 
 ## What's here
 
 - **Chat** — GPT chat with regenerate, retry, loading states, localStorage history. OpenAI calls go through a server-side boundary (`POST /api/chat`); the key never reaches the browser.
+- **Diary** — the assistant writes its own gentle diary entries about your day (kind outside observer, never guilt).
+- **News** — gentle news: interest lanes, life-impact "worth knowing" lane, rumor lane with honest confidence labels; violent-crime detail filtered by default.
 - **Settings** — model, developer instructions, persona, temperature, top-p, max output tokens, reasoning effort (model-gated), response format, safety section, tools placeholders, light/dark/system theme.
 - **Life** — tasks, shopping list, medication checklist, sleep schedule (local only).
 - **Calendar** — visual month grid with sample events.
 - **Images / Search** — honest placeholders; adapter boundary ready.
+
+Coding agents: read `AGENTS.md` first; work is assigned via `docs/tasks/` (see `docs/collaboration-protocol.md`).
 
 ## Architecture
 

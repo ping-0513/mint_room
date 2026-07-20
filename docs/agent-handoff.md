@@ -4,14 +4,17 @@ Status: FIRST FOUNDATION PASS COMPLETE AND VERIFIED (2026-07-20). This file is t
 
 ## Current repo state
 
-- Stack: plain Node.js (>=18, tested on v22) HTTP server + static vanilla HTML/CSS/JS frontend. **Zero npm dependencies** — nothing to install, nothing to break.
+- Stack: plain Node.js (>=18, tested on v22) HTTP server + static vanilla HTML/CSS/JS frontend. **One npm dependency** (`fast-xml-parser`, user-approved for news RSS parsing) — `npm install` IS required before `npm start`.
   - Rationale: repo was empty, session time was constrained. Migrating to Next.js/React/TS later is fine; the adapter and settings schema port as-is.
 - Branch: `claude/assistant-app-foundation-jvhrba` (pushed).
 
 ## Files
 
 - `server.mjs` — HTTP server: serves `public/`, `POST /api/chat` (server-side OpenAI boundary), `GET /api/status` (key-configured flag + model list; never exposes the key). Generates a per-instance anonymous `safety_identifier` (UUID-based, no PII).
-- `server/openai.mjs` — **the single OpenAI adapter.** All payload construction is in `buildResponsesPayload()`. Model list + capability flags in `MODELS`. Mock mode when `OPENAI_API_KEY` is unset (clearly labeled in replies).
+- `server/openai.mjs` — **the single OpenAI adapter.** All payload construction is in `buildResponsesPayload()`. Model list + capability flags in `MODELS`. Mock mode when `OPENAI_API_KEY` is unset (clearly labeled in replies). Also holds the diary prompt/generation (`buildDiaryPrompt`/`createDiaryEntry`) and news classification (`buildNewsPrompt`/`classifyNews`).
+- `server/news.mjs` — RSS2.0/Atom fetch+parse (fast-xml-parser), feed cache, keyword fallback filter, classification cache helpers.
+- `server/openai.test.mjs`, `server/news.test.mjs` — unit tests (`npm test`).
+- `AGENTS.md`, `docs/collaboration-protocol.md`, `docs/tasks/` — agent rules and the Claude×Codex ticket workflow.
 - `public/index.html` — tab shell (Chat / Life / Calendar / Images / Search / Settings), settings markup.
 - `public/styles.css` — pastel mint theme; light/dark via CSS variables + `[data-theme="dark"]`; system preference respected.
 - `public/app.js` — chat state machine, settings binding + localStorage, life lists, calendar grid, tabs.
@@ -20,12 +23,12 @@ Status: FIRST FOUNDATION PASS COMPLETE AND VERIFIED (2026-07-20). This file is t
 ## How to run
 
 ```
+npm install                     # required since 2026-07-20 (fast-xml-parser)
 export OPENAI_API_KEY=sk-...   # optional; omit for clearly-labeled mock mode
 npm start                       # = node server.mjs → http://localhost:3000
 npm run check                   # node --check on all JS entry points
+npm test                        # unit tests (Node built-in node:test)
 ```
-
-No test framework exists yet.
 
 ## What works now (verified)
 

@@ -335,7 +335,10 @@ Add project-specific commands and conventions below.
 
 ### Architecture notes
 
--
+- All OpenAI payload construction lives in `server/openai.mjs`; UI never builds payloads. See `docs/agent-handoff.md` for current state.
+- `docs/ux-design-testing-principles.md` is an ACTIVE guideline (not an ideas memo): read it before implementing or reviewing UI changes; keep its parity table and smoke script updated.
+- `docs/master-preferences.md` is an ACTIVE guideline: the user's standing requirements for ANY app (visual calm, no layout jank, waiting-state UX, maintainability, AI-handoff resilience, Japanese code comments for new/changed code, security). Read before implementing.
+- Also ACTIVE: `AGENTS.md` (execution rules for all agents, incl. Codex countermeasures), `docs/collaboration-protocol.md` + `docs/tasks/` (Claude×Codex ticket workflow), `docs/ui-recipes.md` (UI craft rules — read before any UI change).
 
 ### User flow notes
 

@@ -1,17 +1,17 @@
 # Agent handoff — mint room
 
-Status: FOUNDATION COMPLETE; LOCAL PAID-API GUARD + HONEST SAFETY PLACEHOLDERS UNIT/HTTP VERIFIED, BROWSER QA PENDING (2026-07-20). This file is the source of truth for the next agent.
+Status: FOUNDATION COMPLETE; CROSS-SITE-RESISTANT LOCAL PAID-API GUARD + HONEST SAFETY PLACEHOLDERS UNIT/HTTP VERIFIED, BROWSER QA PENDING (2026-07-20). This file is the source of truth for the next agent.
 
 ## Current repo state
 
 - Stack: plain Node.js (>=18, tested on v22) HTTP server + static vanilla HTML/CSS/JS frontend. **One npm dependency** (`fast-xml-parser`, user-approved for news RSS parsing) — `npm install` IS required before `npm start`.
   - Rationale: repo was empty, session time was constrained. Migrating to Next.js/React/TS later is fine; the adapter and settings schema port as-is.
-- Review-prep branch: `codex/pr-triage-hardening` (local; not pushed).
+- Review-prep branch: `codex/mint-room-skills` (local; not pushed).
 
 ## Files
 
-- `server.mjs` — HTTP server: serves `public/`, `POST /api/chat` (server-side OpenAI boundary), `GET /api/status` (key-configured flag + model list; never exposes the key). Generates a per-instance anonymous `safety_identifier` (UUID-based, no PII). Paid-provider POST routes reject non-local requests when `OPENAI_API_KEY` is set.
-- `server/access.mjs`, `server/access.test.mjs` — pure localhost-request guard and its regression tests. The guard checks both the socket address and Host header so LAN clients and public reverse-proxy hosts cannot spend the configured API key.
+- `server.mjs` — HTTP server: serves `public/`, `POST /api/chat` (server-side OpenAI boundary), `GET /api/status` (key-configured flag + model list; never exposes the key). Generates a per-instance anonymous `safety_identifier` (UUID-based, no PII). Binds to `127.0.0.1` by default; `HOST` is an explicit opt-in override.
+- `server/access.mjs`, `server/access.test.mjs` — pure paid-provider request guard and regression tests. It requires loopback+local Host, JSON content, same Origin when present, and rejects browser-declared cross-site requests.
 - `server/openai.mjs` — **the single OpenAI adapter.** All payload construction is in `buildResponsesPayload()`. Model list + capability flags in `MODELS`. Mock mode when `OPENAI_API_KEY` is unset (clearly labeled in replies). Also holds the diary prompt/generation (`buildDiaryPrompt`/`createDiaryEntry`) and news classification (`buildNewsPrompt`/`classifyNews`).
 - `server/news.mjs` — RSS2.0/Atom fetch+parse (fast-xml-parser), feed cache, keyword fallback filter, classification cache helpers.
 - `server/openai.test.mjs`, `server/news.test.mjs` — unit tests (`npm test`).
@@ -26,7 +26,7 @@ Status: FOUNDATION COMPLETE; LOCAL PAID-API GUARD + HONEST SAFETY PLACEHOLDERS U
 ```
 npm install                     # required since 2026-07-20 (fast-xml-parser)
 export OPENAI_API_KEY=sk-...   # optional; omit for clearly-labeled mock mode
-npm start                       # = node server.mjs → http://localhost:3000
+npm start                       # = node server.mjs → http://127.0.0.1:3000
 npm run check                   # node --check on all JS entry points
 npm test                        # unit tests (Node built-in node:test)
 ```
@@ -34,7 +34,7 @@ npm test                        # unit tests (Node built-in node:test)
 ## What works now (verified)
 
 - Server boots; `GET /` serves the app; `GET /api/status` and `POST /api/chat` verified via curl (mock mode).
-- When `OPENAI_API_KEY` is configured, `/api/chat`, `/api/diary`, and `/api/news` only permit localhost requests. Public access remains unsupported until real authentication and rate limiting are designed.
+- `/api/chat`, `/api/diary`, and `/api/news` require JSON. When `OPENAI_API_KEY` is configured they additionally require loopback+local Host and same-Origin browser requests; cross-site simple POSTs cannot spend the key. Public access remains unsupported until real authentication and rate limiting are designed.
 - Chat: input clears on send, double-send guarded (`sending` flag + disabled buttons), loading indicator, error banner with Retry/Dismiss, failed sends roll back and restore the input text.
 - **Regenerate** re-requests a reply for the same last user turn: it splices off the trailing assistant reply, never re-appends the user message, and restores the old reply if the retry fails.
 - Chat history persists in localStorage (`mintroom.chat.v1`); only the last `historyLimit` messages (not turn pairs) are sent to the API — UI label says "messages".
@@ -75,6 +75,7 @@ Not mapped yet (deliberately): `tools`, `stream`, `prompt_cache_key`, moderation
 
 ## Verification run
 
+- Cross-site guard 2026-07-20: `NODE_OPTIONS=--test-isolation=none npm test` → 34/34 pass; `npm run check` → pass. With a fake key, HTTP smoke returned 415 for external `text/plain`, 403 for external Origin JSON and `Sec-Fetch-Site: cross-site`, without reaching OpenAI. `server.address()` confirmed the default listener is `127.0.0.1`.
 - PR-triage hardening 2026-07-20: `NODE_OPTIONS=--test-isolation=none npm test` → 30/30 pass, including localhost/LAN/public-host access tests and disabled-placeholder UI tests; `npm run check` → pass. Plain isolated `npm test` could not start child test processes in the Windows sandbox (`spawn EPERM`), so the same full suite was run in-process through the standard npm script.
 - HTTP smoke: localhost mock `/api/status` and `/api/chat` → 200; an API-key-configured request with public Host header → 403 before any provider call. In-app browser control was unavailable in this session, so the Safety card's dark-mode/mobile visual appearance remains unverified.
 - `npm test` → 24/24 pass (payload mapping, diary prompt, news: RSS/Atom fixture parsing, broken-XML tolerance, stable IDs, keyword block/interest lanes, classification prompt content, block-list overreach guard). News endpoint smoke-tested: graceful degradation with all feeds failing (ok:true + feedErrors), bad body → 400. Real RSS fetch and real LLM classification NOT verifiable from this sandbox (no outbound network, no API key).

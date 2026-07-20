@@ -1,11 +1,37 @@
-// 有料プロバイダーのAPIは、認証基盤がない間は同じ端末からの利用だけを許可する。
-// remoteAddress と Host の両方を見ることで、LAN直アクセスと公開リバースプロキシを拒否する。
+// 有料プロバイダーのAPIは、認証基盤がない間は同じ端末だけに限定する。
 export function isLocalPaidProviderRequest(remoteAddress, hostHeader) {
   if (!isLoopbackAddress(remoteAddress)) return false;
 
   try {
     const hostname = new URL(`http://${hostHeader}`).hostname;
     return hostname === "localhost" || hostname.endsWith(".localhost") || isLoopbackAddress(hostname);
+  } catch {
+    return false;
+  }
+}
+
+// JSON以外を拒否すると、外部サイトがpreflightなしで送れる単純POSTを遮断できる。
+export function isJSONContentType(contentType) {
+  return String(contentType ?? "").split(";", 1)[0].trim().toLowerCase() === "application/json";
+}
+
+// ブラウザ由来の有料リクエストは同一Originだけを許し、CLIはOriginなしでも利用できる。
+export function isTrustedPaidProviderRequest({
+  remoteAddress,
+  hostHeader,
+  originHeader,
+  contentType,
+  secFetchSite,
+}) {
+  if (!isLocalPaidProviderRequest(remoteAddress, hostHeader)) return false;
+  if (!isJSONContentType(contentType)) return false;
+  if (String(secFetchSite ?? "").trim().toLowerCase() === "cross-site") return false;
+  if (originHeader === undefined || originHeader === null || String(originHeader).trim() === "") return true;
+
+  try {
+    const requestURL = new URL(`http://${hostHeader}`);
+    const originURL = new URL(String(originHeader));
+    return originURL.protocol === "http:" && originURL.host === requestURL.host;
   } catch {
     return false;
   }

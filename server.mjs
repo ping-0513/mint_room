@@ -9,9 +9,10 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { MODELS, DEFAULT_MODEL, createChatResponse, createDiaryEntry, classifyNews } from "./server/openai.mjs";
 import { getNews, keywordClassify, prefsCacheKey, getCachedClassification, setCachedClassification } from "./server/news.mjs";
-import { isLocalPaidProviderRequest } from "./server/access.mjs";
+import { isJSONContentType, isTrustedPaidProviderRequest } from "./server/access.mjs";
 
 const PORT = Number(process.env.PORT) || 3000;
+const HOST = process.env.HOST || "127.0.0.1";
 // fileURLToPath keeps this working on Windows too (URL.pathname would not).
 const PUBLIC_DIR = fileURLToPath(new URL("./public/", import.meta.url));
 
@@ -33,12 +34,27 @@ export const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
 
-    // 公開用の認証・レート制限がないため、APIキー利用時はローカル端末だけに限定する。
+    // JSON必須化により、外部サイトがpreflightなしで送れる単純POSTを先に拒否する。
+    if (
+      req.method === "POST" &&
+      PAID_PROVIDER_PATHS.has(url.pathname) &&
+      !isJSONContentType(req.headers["content-type"])
+    ) {
+      return sendJSON(res, 415, { ok: false, error: "Content-Type must be application/json." });
+    }
+
+    // 公開用の認証・レート制限がないため、APIキー利用時は同じ端末・同じOriginに限定する。
     if (
       req.method === "POST" &&
       PAID_PROVIDER_PATHS.has(url.pathname) &&
       process.env.OPENAI_API_KEY &&
-      !isLocalPaidProviderRequest(req.socket.remoteAddress, req.headers.host)
+      !isTrustedPaidProviderRequest({
+        remoteAddress: req.socket.remoteAddress,
+        hostHeader: req.headers.host,
+        originHeader: req.headers.origin,
+        contentType: req.headers["content-type"],
+        secFetchSite: req.headers["sec-fetch-site"],
+      })
     ) {
       return sendJSON(res, 403, {
         ok: false,
@@ -181,7 +197,7 @@ function readBody(req, limit = 1_000_000) {
   });
 }
 
-server.listen(PORT, () => {
-  console.log(`mint room 🌿 http://localhost:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`mint room 🌿 http://${HOST}:${PORT}`);
   console.log(process.env.OPENAI_API_KEY ? "OpenAI key: configured" : "OpenAI key: NOT set — running in mock mode");
 });

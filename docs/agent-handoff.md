@@ -76,6 +76,7 @@ Not mapped yet (deliberately): `tools`, `stream`, `prompt_cache_key`, moderation
 
 ## Design docs
 
+- `docs/feature-ideas.md` (2026-07-20, Japanese): ideas-only backlog of latent user needs (markdown rendering, backup/export, PWA notifications, tool use for Life data, accessibility, etc.) with a suggested effort/impact order. Not commitments.
 - `docs/4o-thinking-orchestration.md` (2026-07-20): design-only spec for a future layered assistant — primary conversational model + background reasoning model, orchestrator modes, sleep/routine nudges, reasoning output schema, and a 7-stage implementation plan. Nothing from it is implemented yet; its Stage 1–3 tasks are good Sonnet-sized units.
 
 ## Remaining tasks / safe next steps (Sonnet-suitable, in priority order)

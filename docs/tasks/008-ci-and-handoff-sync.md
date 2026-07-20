@@ -40,7 +40,7 @@
 ## 報告(実装者が記入)
 
 - 変更ファイル: `.github/workflows/ci.yml`, `docs/tasks/008-ci-and-handoff-sync.md`, `docs/tasks/README.md`, `docs/agent-handoff.md`
-- 検証結果: `node --test --test-isolation=none` 88/88 pass、`npm run check` pass、stage後の`git diff --cached --check` pass。設定したworkflowはNode 22/24を独立実行し、checkout後の認証情報を保持しない。公式Actionはcheckout v7.0.1 / setup-node v6.4.0の確認済み完全SHAへ固定した。
-- 未確認・懸念: このWindows sandboxでは通常の`npm test`が全test fileの子process生成時に`spawn EPERM`となるため、同じtest suiteをprocess分離なしで実行した。Draft PR上のUbuntu CIで通常の`npm test`を確認する。
+- 検証結果: `node --test --test-isolation=none` 88/88 pass、`npm run check` pass、stage後の`git diff --cached --check` pass。Draft PR #5のUbuntu CIは通常の`npm test`と`npm run check`をNode 22/24ともpass。workflowは両versionを独立実行し、checkout後の認証情報を保持しない。公式Actionはcheckout v7.0.1 / setup-node v6.4.0の確認済み完全SHAへ固定した。
+- 未確認・懸念: このWindows sandboxでは通常の`npm test`が全test fileの子process生成時に`spawn EPERM`となるため、ローカルでは同じsuiteをprocess分離なしで実行した。通常実行は上記Ubuntu CIで確認済み。ブランチ保護設定は本チケットのスコープ外で変更していない。
 
 ## レビュー(相手モデルが記入)

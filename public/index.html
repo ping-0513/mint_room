@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mint room 🌿</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">✨ mint room</div>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="chat">💬 Chat</button>
+      <button class="tab" data-tab="life">🌱 Life</button>
+      <button class="tab" data-tab="calendar">📅 Calendar</button>
+      <button class="tab" data-tab="images">🖼️ Images</button>
+      <button class="tab" data-tab="search">🔍 Search</button>
+      <button class="tab" data-tab="settings">⚙️ Settings</button>
+    </nav>
+    <div class="key-status" id="keyStatus" title="OpenAI API key status">…</div>
+  </header>
+
+  <!-- CHAT -->
+  <main class="panel active" id="panel-chat">
+    <div class="chat-log" id="chatLog" aria-live="polite"></div>
+    <div class="chat-error hidden" id="chatError">
+      <span id="chatErrorText"></span>
+      <button id="retryBtn" class="btn small">Retry</button>
+      <button id="dismissErrorBtn" class="btn small ghost">Dismiss</button>
+    </div>
+    <form class="chat-input-row" id="chatForm">
+      <textarea id="chatInput" rows="2" placeholder="Say something… (Enter to send, Shift+Enter for newline)"></textarea>
+      <div class="chat-buttons">
+        <button type="submit" id="sendBtn" class="btn primary">Send</button>
+        <button type="button" id="regenBtn" class="btn" title="Regenerate the last assistant reply (does not re-send your message)">↻ Regenerate</button>
+        <button type="button" id="clearChatBtn" class="btn ghost" title="Clear this conversation">Clear</button>
+      </div>
+    </form>
+  </main>
+
+  <!-- LIFE -->
+  <main class="panel" id="panel-life">
+    <div class="cards">
+      <section class="card">
+        <h2>😴 Sleep schedule</h2>
+        <label>Wake up <input type="time" id="wakeTime"></label>
+        <label>Sleep <input type="time" id="sleepTime"></label>
+        <p class="hint">Saved locally on this device.</p>
+      </section>
+      <section class="card">
+        <h2>✅ Tasks</h2>
+        <div data-list="tasks"></div>
+      </section>
+      <section class="card">
+        <h2>🛒 Shopping list</h2>
+        <div data-list="shopping"></div>
+      </section>
+      <section class="card">
+        <h2>💊 Medication</h2>
+        <div data-list="medication"></div>
+        <p class="hint">Checklist resets are manual for now (daily reset is a planned feature).</p>
+      </section>
+    </div>
+  </main>
+
+  <!-- CALENDAR -->
+  <main class="panel" id="panel-calendar">
+    <div class="card">
+      <div class="cal-header">
+        <button class="btn small" id="calPrev">←</button>
+        <h2 id="calTitle">Calendar</h2>
+        <button class="btn small" id="calNext">→</button>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+      <p class="hint">Sample events shown for now — event editing is a planned next step. Markers: 🩺 health · 🛍️ errands · 🎀 fun · 📌 tasks</p>
+    </div>
+  </main>
+
+  <!-- IMAGES -->
+  <main class="panel" id="panel-images">
+    <div class="card placeholder-card">
+      <h2>🖼️ Images</h2>
+      <p>Image input, image understanding, and image generation are <strong>planned</strong> and not available yet.</p>
+      <p class="hint">The server-side OpenAI boundary is ready to be extended (see <code>server/openai.mjs</code>). Nothing here fakes results.</p>
+      <button class="btn" disabled title="Not implemented yet">Upload image (coming soon)</button>
+      <button class="btn" disabled title="Not implemented yet">Generate image (coming soon)</button>
+    </div>
+  </main>
+
+  <!-- SEARCH -->
+  <main class="panel" id="panel-search">
+    <div class="card placeholder-card">
+      <h2>🔍 Search</h2>
+      <p>Web search is <strong>planned</strong> and not available yet. It will use the OpenAI web search tool through the same server boundary.</p>
+      <button class="btn" disabled title="Not implemented yet">Search the web (coming soon)</button>
+    </div>
+  </main>
+
+  <!-- SETTINGS -->
+  <main class="panel" id="panel-settings">
+    <div class="cards settings">
+
+      <section class="card">
+        <h2>🌿 General & Appearance</h2>
+        <label>Theme
+          <select id="set-theme">
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+        <p class="hint">Dark mode keeps the mint identity with soft accents — easier on the eyes.</p>
+        <div id="apiKeyHelp" class="hint"></div>
+      </section>
+
+      <section class="card">
+        <h2>🤖 Model</h2>
+        <label>Model <select id="set-model"></select></label>
+        <label>Reasoning effort
+          <select id="set-reasoningEffort">
+            <option value="default">default</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+          </select>
+        </label>
+        <p class="hint" id="reasoningHint">Only available on reasoning models.</p>
+      </section>
+
+      <section class="card">
+        <h2>💬 Behavior</h2>
+        <label>Developer instructions
+          <textarea id="set-developerInstructions" rows="3" placeholder="e.g. Always answer concisely in Japanese."></textarea>
+        </label>
+        <p class="hint">Sent to the model as system-level instructions. These strongly affect assistant behavior.</p>
+        <label>Assistant style / persona note
+          <textarea id="set-persona" rows="2" placeholder="e.g. Gentle, encouraging, a little playful."></textarea>
+        </label>
+        <p class="hint">Kept separate from developer instructions; sent as an app-level style note.</p>
+        <label>Temperature <input type="number" id="set-temperature" min="0" max="2" step="0.1"></label>
+        <p class="hint">0–2. Lower = more stable, higher = more varied.</p>
+        <label>Top-p <input type="number" id="set-topP" min="0" max="1" step="0.05"></label>
+        <p class="hint">0–1. Alternative sampling control — usually change either temperature or top-p, not both.</p>
+        <label>Max output tokens <input type="number" id="set-maxOutputTokens" min="16" max="32768" step="16"></label>
+        <p class="hint">Limits response length (maps to <code>max_output_tokens</code>).</p>
+        <label>Response format
+          <select id="set-responseFormat">
+            <option value="text">Plain text</option>
+            <option value="json">JSON (advanced)</option>
+          </select>
+        </label>
+        <p class="hint">JSON mode also requires your prompt to ask for JSON output.</p>
+      </section>
+
+      <section class="card">
+        <h2>🛡️ Safety</h2>
+        <p class="hint">App-level safety handling. This cannot and does not disable OpenAI's own policy enforcement.</p>
+        <label>Safety mode
+          <select id="set-safetyMode">
+            <option value="standard">Standard</option>
+            <option value="stricter">Stricter</option>
+            <option value="debug">Development / debug</option>
+          </select>
+        </label>
+        <label class="row"><input type="checkbox" id="set-moderationPrecheck"> Moderation precheck <span class="badge">placeholder</span></label>
+        <p class="hint">Planned: check input with the OpenAI moderation endpoint (server-side) before generating. Not implemented yet — this toggle does nothing.</p>
+        <label>Moderation behavior
+          <select id="set-moderationBehavior">
+            <option value="block">Block and show a message</option>
+            <option value="warn">Warn only</option>
+            <option value="log">Developer logging</option>
+          </select>
+        </label>
+        <details>
+          <summary>Advanced privacy</summary>
+          <label class="row"><input type="checkbox" id="set-store"> Allow OpenAI to store responses (<code>store</code>)</label>
+          <p class="hint">Off by default for privacy. A stable anonymous <code>safety_identifier</code> is generated server-side — never your email or name.</p>
+          <label>Prompt cache key <input type="text" id="set-promptCacheKey" placeholder="developer placeholder — not sent"></label>
+        </details>
+      </section>
+
+      <section class="card">
+        <h2>🧰 Tools & capabilities</h2>
+        <label class="row"><input type="checkbox" id="set-webSearch" disabled> Web search <span class="badge">coming soon</span></label>
+        <label class="row"><input type="checkbox" id="set-imageInput" disabled> Image input <span class="badge">coming soon</span></label>
+        <label class="row"><input type="checkbox" id="set-imageGeneration" disabled> Image generation <span class="badge">coming soon</span></label>
+        <label class="row"><input type="checkbox" id="set-streaming" disabled> Streaming replies <span class="badge">next step</span></label>
+        <p class="hint">Disabled items are honest placeholders — the server boundary is ready for them.</p>
+        <label>History sent to the model (turns) <input type="number" id="set-historyLimit" min="1" max="100" step="1"></label>
+        <p class="hint">App-only: older turns are kept on screen but not re-sent.</p>
+      </section>
+
+    </div>
+  </main>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

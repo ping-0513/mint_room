@@ -4,6 +4,10 @@
 
 This file is written for ALL coding agents (Codex/GPT-5.6 Sol, Claude, others). It complements `CLAUDE.md` (operating contract) and the ACTIVE guidelines in `docs/`. It exists because specific failure modes have been publicly documented for current coding agents — each rule below counters a real, observed failure pattern. Do not skip this file.
 
+## Task tickets — how work is assigned here
+
+This repo runs a Claude × Codex collaboration protocol (`docs/collaboration-protocol.md`). If the user says "do task NNN" (or you find tickets in `docs/tasks/`): the ticket IS your scope. Set its Status to IN PROGRESS, fill 実装前メモ before coding on non-trivial work, implement within the ticket's file list, run its 検証 section, fill the 報告 section honestly, set Status to REVIEW. **Use your maximum reasoning effort — usage cost is explicitly not a concern in this environment; thinking harder is always preferred.** Do not edit ACTIVE guideline files directly; propose changes in your ticket's 報告 section instead.
+
 ## Read first, in this order
 
 1. `docs/agent-handoff.md` — current implementation state (source of truth; conversation memory is NOT).

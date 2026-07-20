@@ -48,6 +48,7 @@ Tone rules for anything nudge-related: soft, brief, opt-out-first, never guilt-b
 - Helps produce "Thinking-like" responses for complex questions (two-pass design, §"4o Thinking response design").
 - Never speaks directly to the user unless its `user_visible_message` is deliberately promoted through the primary layer or a nudge UI element.
 - Configured via a new `settings.reasoningModel` (placeholder id in `MODELS`, flagged e.g. `role: "reasoning"`); typically run with low temperature and structured output.
+- **Solo mode:** `reasoningModel` may be set to the same model as the primary (4o-thinking-with-itself). Every orchestrator mode works unchanged; quality is lower than with a dedicated reasoning model but still better than single-pass. See `docs/4o-solo-enhancement.md` for the solo-focused idea list.
 
 ## 4. Conversation architecture
 

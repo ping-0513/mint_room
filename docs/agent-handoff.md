@@ -4,9 +4,9 @@ Status: FOUNDATION COMPLETE; GPT-4O FIXED SNAPSHOT + LOCAL API COST LEDGER + PAI
 
 ## Current repo state
 
-- Stack: plain Node.js (>=18, tested on v22) HTTP server + static vanilla HTML/CSS/JS frontend. **One npm dependency** (`fast-xml-parser`, user-approved for news RSS parsing) — `npm install` IS required before `npm start`.
+- Stack: plain Node.js (engine >=18; CI-covered on v22/v24) HTTP server + static vanilla HTML/CSS/JS frontend. **One npm dependency** (`fast-xml-parser`, user-approved for news RSS parsing) — `npm install` IS required before `npm start`.
   - Rationale: repo was empty, session time was constrained. Migrating to Next.js/React/TS later is fine; the adapter and settings schema port as-is.
-- Review-prep branch: `codex/mint-room-skills` (local; not pushed).
+- `main` includes PR #4 (`7fdf873`, merged 2026-07-20): fixed GPT-4o snapshot, Skill Packs, local cost ledger, and paid-API hardening are no longer pending branch work.
 
 ## Files
 
@@ -23,6 +23,7 @@ Status: FOUNDATION COMPLETE; GPT-4O FIXED SNAPSHOT + LOCAL API COST LEDGER + PAI
 - `public/app.js` — chat state machine, settings binding + localStorage, cost recording/rendering, life lists, calendar grid, tabs.
 - `public/costs.js` — pure local cost-ledger validation, dedupe, fixed-at-recording FX conversion, inclusive date filtering, exact aggregation and formatting.
 - `.env.example`, `.gitignore`, `package.json` (scripts only), `README.md`.
+- `.github/workflows/ci.yml` — PRs and `main` run `npm ci`, `npm test`, and `npm run check` on Node 22 and 24 with read-only repository permission.
 
 ## How to run
 
@@ -84,6 +85,7 @@ Not mapped yet (deliberately): `tools`, `stream`, `prompt_cache_key`, moderation
 
 ## Verification run
 
+- CI + handoff sync 2026-07-21: local in-process suite 88/88 pass; `npm run check` and `git diff --check` pass. Plain `npm test` is blocked only by this Windows sandbox's child-process `spawn EPERM`. PR/main workflow is configured for ordinary `npm test` on Ubuntu Node 22/24 with read-only contents permission, immutable official-Action SHAs, no persisted checkout credentials and a 10-minute timeout; remote jobs remain pending until the Draft PR is pushed.
 - Stable GPT-4o + cost ledger 2026-07-20: final Node 24.13 in-process suite 88/88 pass; `npm run check` and `git diff --check` pass. Unit tests cover cached-token split, reasoning-token non-duplication, actual-model pricing, unknown model/tier/usage, content-free storage, defensive legacy-alias migration, dedupe, cross-tab merge, FX immutability and single-owner persistence, inclusive dates, stored timezone, corrupt ledger and sub-yen formatting. In-app browser verified fixed model label, mock non-accounting, fixture call `¥0.48 ($0.003)`, two-call total `¥0.96 ($0.006)`, one-day range `¥0.48`, invalid-range error and reload persistence. Dark mode at 360px had no horizontal overflow (`scrollWidth === clientWidth`). Real OpenAI API/invoice remains unverified (no key).
 - Safe news links 2026-07-20: full suite 55/55 pass; `npm run check` and `git diff --check` → pass. Unit fixtures cover HTTP(S), feed-relative RSS/Atom URLs, canonical IDs, obfuscated `javascript:`, `data:`, `file:`, `blob:`, `mailto:`, and malformed URLs. In-app browser verified safe links remain anchors while unsafe links are non-clickable spans both fresh and after localStorage-backed reload. Independent adversarial re-review found no P1/P2 bypass.
 - Copy button 2026-07-20: `npm run check` and `git diff --check` → pass. In-app browser verified exact body-only clipboard contents, success/reset, a forced clipboard rejection with visible failure/reset, immediate double-click guard, no button on pending/user messages, persistence after reload, and no size shift/overflow at 375px in dark mode.
@@ -101,7 +103,7 @@ Not mapped yet (deliberately): `tools`, `stream`, `prompt_cache_key`, moderation
 
 ## Design docs
 
-- `docs/collaboration-protocol.md` + `docs/tasks/` (2026-07-20, **ACTIVE GUIDELINE**): Claude × Codex collaboration and ticket workflow. Tickets 001/003/004/005/006 are in REVIEW; ticket002 (backup export/import) remains TODO/review work. Codex must not edit ACTIVE guideline prose directly (only the living parity/smoke records when affected).
+- `docs/collaboration-protocol.md` + `docs/tasks/` (2026-07-21, **ACTIVE GUIDELINE**): Claude × Codex collaboration and ticket workflow. Tickets 003–006 are DONE; ticket001 awaits the other model's review; tickets002 (backup/export) and 007 (Skill regex refactor) remain TODO. Ticket008 adds CI and synchronizes this handoff. Codex must not edit ACTIVE guideline prose directly (only the living parity/smoke records when affected).
 - `docs/user-stability-audit.md` (2026-07-20): user-perspective audit of mutable aliases, silent fallback, implicit paid calls, cost/storage uncertainty and remaining priorities. Resolved and open findings are deliberately separate.
 - `AGENTS.md` (repo root, 2026-07-20, **ACTIVE GUIDELINE**): execution rules for all coding agents, written as countermeasures to publicly documented GPT-5.6 Sol failure modes (intent overreach / permissive instruction reading per OpenAI's system card, target substitution, credential mishandling, false completion claims, shallow confident planning, frontend animation/callout spam, stuck loops, stale context). Key inversions: default-deny permission model, honest-report obligation, 2-failure circuit breaker, re-read-before-edit.
 
@@ -115,15 +117,18 @@ Not mapped yet (deliberately): `tools`, `stream`, `prompt_cache_key`, moderation
 - `docs/feature-ideas.md` (2026-07-20, Japanese): ideas-only backlog of latent user needs (markdown rendering, backup/export, PWA notifications, tool use for Life data, accessibility, etc.) with a suggested effort/impact order. Not commitments.
 - `docs/4o-thinking-orchestration.md` (2026-07-20): design-only spec for a future layered assistant — primary conversational model + background reasoning model, orchestrator modes, sleep/routine nudges, reasoning output schema, and a 7-stage implementation plan. Nothing from it is implemented yet; its Stage 1–3 tasks are good Sonnet-sized units.
 
-## Remaining tasks / safe next steps (Sonnet-suitable, in priority order)
+## Remaining tasks / safe next steps (in priority order)
 
-1. **Browser smoke test** — load the app, click through tabs, send a mock chat, toggle theme. Fix any DOM typos found.
-2. **Streaming** — `stream: true` in the adapter + SSE (or chunked fetch) endpoint variant + incremental render in `sendMessage()`/`regenerate()`. Enable the existing streaming toggle.
-3. **Moderation precheck** — server-side call to the OpenAI moderation endpoint in `server/openai.mjs`, honoring `moderationBehavior` (block/warn/log). Wire the existing toggle.
-4. **Image input** — file input in Chat/Images → base64 `input_image` content part in the adapter. Keep payload construction in the adapter.
-5. **Web search + image generation** — Responses API `tools` wiring behind the disabled toggles.
-6. **Calendar events** — add/edit/delete events with localStorage, category markers (health/errand/fun/task already styled).
-6b. **Diary follow-ups** — configurable address term (マスター is currently the default in the server-side diary instructions); auto-suggest writing yesterday's entry on first visit of a new day (no background scheduler exists — the app must be open); optional Obsidian export of entries (see external-integrations memo).
-7. Optional later: migrate to Next.js/React/TypeScript; the adapter, settings schema, and localStorage keys should carry over.
+1. **Ticket001の相手モデルレビュー** — 実装は完了済み。Fableがレビュー欄を記入するまでREVIEWのまま維持する。
+2. **Ticket002: backup/export/import and corrupt-ledger recovery** — highest remaining data-trust risk; keep it client-only and validate before any overwrite.
+3. **Ticket007: Skill Pack regex refactor** — behavior-preserving maintainability work before adding more packs.
+4. **Browser smoke test** — load the app, click through tabs, send a mock chat, toggle theme. Fix any DOM typos found.
+5. **Streaming** — `stream: true` in the adapter + SSE (or chunked fetch) endpoint variant + incremental render in `sendMessage()`/`regenerate()`. Enable the existing streaming toggle.
+6. **Moderation precheck** — server-side call to the OpenAI moderation endpoint in `server/openai.mjs`, honoring `moderationBehavior` (block/warn/log). Wire the existing toggle.
+7. **Image input** — file input in Chat/Images → base64 `input_image` content part in the adapter. Keep payload construction in the adapter.
+8. **Web search + image generation** — Responses API `tools` wiring behind the disabled toggles.
+9. **Calendar events** — add/edit/delete events with localStorage, category markers (health/errand/fun/task already styled).
+9b. **Diary follow-ups** — configurable address term (マスター is currently the default in the server-side diary instructions); auto-suggest writing yesterday's entry on first visit of a new day (no background scheduler exists — the app must be open); optional Obsidian export of entries (see external-integrations memo).
+10. Optional later: migrate to Next.js/React/TypeScript; the adapter, settings schema, and localStorage keys should carry over.
 
 Constraints for the next agent: keep ALL OpenAI payload construction in `server/openai.mjs`; no DB/auth/deployment/accounts; settings stay in localStorage; never expose the API key client-side; keep placeholders honestly labeled; preserve the mint light/dark theme identity.

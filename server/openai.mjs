@@ -4,6 +4,7 @@
 // this module maps them to the OpenAI Responses API.
 
 import { getSkillInstructionBlocks, selectSkillPack, toActiveSkill } from "./skills.mjs";
+import { createUsageEvent } from "./costs.mjs";
 
 // Model list is intentionally configurable here, not hardcoded in the request
 // function. Capability flags gate model-dependent settings (the UI mirrors
@@ -11,7 +12,7 @@ import { getSkillInstructionBlocks, selectSkillPack, toActiveSkill } from "./ski
 export const MODELS = [
   { id: "gpt-4.1-mini", label: "GPT-4.1 mini (fast, default)", supportsTemperature: true, supportsReasoningEffort: false },
   { id: "gpt-4.1", label: "GPT-4.1", supportsTemperature: true, supportsReasoningEffort: false },
-  { id: "gpt-4o", label: "GPT-4o", supportsTemperature: true, supportsReasoningEffort: false },
+  { id: "gpt-4o-2024-11-20", label: "GPT-4o (2024-11-20・固定)", supportsTemperature: true, supportsReasoningEffort: false },
   { id: "gpt-4o-mini", label: "GPT-4o mini", supportsTemperature: true, supportsReasoningEffort: false },
   { id: "o4-mini", label: "o4-mini (reasoning)", supportsTemperature: false, supportsReasoningEffort: true },
 ];
@@ -59,7 +60,9 @@ export function findModel(id) {
 export function buildResponsesPayload(settings = {}, messages = [], safetyIdentifier, activeSkillIds = []) {
   settings = normalizeSettings(settings);
   messages = Array.isArray(messages) ? messages : [];
-  const model = findModel(settings.model) || findModel(DEFAULT_MODEL);
+  const requestedModel = settings.model === undefined || settings.model === null ? DEFAULT_MODEL : settings.model;
+  const model = findModel(requestedModel);
+  if (!model) throw invalidModelError(requestedModel);
 
   const instructionParts = [];
   if (typeof settings.developerInstructions === "string" && settings.developerInstructions.trim()) {
@@ -77,7 +80,7 @@ export function buildResponsesPayload(settings = {}, messages = [], safetyIdenti
     content: String(m.content ?? ""),
   }));
 
-  const payload = { model: model.id, input, store: settings.store === true };
+  const payload = { model: model.id, input, store: settings.store === true, service_tier: "default" };
 
   if (instructionParts.length) payload.instructions = instructionParts.join("\n\n");
 
@@ -112,13 +115,21 @@ export function resolveActiveSkills(settings = {}, messages = [], options = {}) 
   return pack ? [toActiveSkill(pack)] : [];
 }
 
-/** Call OpenAI (non-streaming). Returns { ok, text?, error? }. Never throws. */
+/** OpenAIを非ストリーミングで呼び、保存可能なusageEventsも返す。例外は外へ投げない。 */
 export async function createChatResponse(settings = {}, messages = [], safetyIdentifier, options = {}) {
   settings = normalizeSettings(settings);
   messages = Array.isArray(messages) ? messages : [];
   const apiKey = process.env.OPENAI_API_KEY;
   const activeSkills = resolveActiveSkills(settings, messages, options);
-  const payload = buildResponsesPayload(settings, messages, safetyIdentifier, activeSkills.map((skill) => skill.id));
+  let payload;
+  try {
+    payload = buildResponsesPayload(settings, messages, safetyIdentifier, activeSkills.map((skill) => skill.id));
+  } catch (err) {
+    if (err?.code === "invalid_model") {
+      return { ok: false, errorCode: err.code, error: err.message, activeSkills, usageEvents: [] };
+    }
+    return { ok: false, error: `Could not build OpenAI request: ${err?.message ?? err}`, activeSkills, usageEvents: [] };
+  }
 
   if (!apiKey) {
     // Mock mode so the UI is fully testable without a key. Clearly labeled.
@@ -127,6 +138,7 @@ export async function createChatResponse(settings = {}, messages = [], safetyIde
       ok: true,
       mock: true,
       activeSkills,
+      usageEvents: [],
       text:
         `🌱 (mock mode — no OPENAI_API_KEY set)\n\nYou said: "${truncate(lastUser?.content ?? "", 200)}"\n\n` +
         `This is a placeholder reply from model "${payload.model}". Set OPENAI_API_KEY and restart the server for real responses.`,
@@ -142,11 +154,21 @@ export async function createChatResponse(settings = {}, messages = [], safetyIde
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       const msg = data?.error?.message || `OpenAI API error (HTTP ${res.status})`;
-      return { ok: false, error: msg, activeSkills };
+      return { ok: false, error: msg, activeSkills, usageEvents: [] };
     }
-    return { ok: true, text: extractOutputText(data), activeSkills };
+    const usageEvent = createUsageEvent({
+      eventId: data?.id,
+      requestedModel: payload.model,
+      actualModel: data?.model,
+      requestedServiceTier: payload.service_tier,
+      actualServiceTier: data?.service_tier,
+      usage: data?.usage,
+      purpose: options.purpose,
+      occurredAt: normalizeProviderCreatedAt(data?.created_at),
+    });
+    return { ok: true, text: extractOutputText(data), activeSkills, usageEvents: [usageEvent] };
   } catch (err) {
-    return { ok: false, error: `Network error reaching OpenAI: ${err?.message ?? err}`, activeSkills };
+    return { ok: false, error: `Network error reaching OpenAI: ${err?.message ?? err}`, activeSkills, usageEvents: [] };
   }
 }
 
@@ -195,12 +217,14 @@ export function buildDiaryPrompt(snapshot) {
 
 /** Generate the diary entry. Mock (clearly labeled) when no API key. Never throws. */
 export async function createDiaryEntry(settings, snapshot, safetyIdentifier) {
+  const modelError = validateConfiguredModel(settings);
+  if (modelError) return { ok: false, errorCode: modelError.code, error: modelError.message, usageEvents: [] };
   const { instructions, userContent } = buildDiaryPrompt(snapshot);
   if (!process.env.OPENAI_API_KEY) {
     const text = snapshot.visitedToday
       ? "🌱(モックモード — OPENAI_API_KEY未設定)\n今日のマスターは mint room に来てくれた。話せてうれしかった。本当の日記はAPIキーを設定すると書けるようになるよ。"
       : "🌱(モックモード — OPENAI_API_KEY未設定)\n今日はマスターに会えなかった。元気にしてるかな。楽しい一日だったならいいな。";
-    return { ok: true, mock: true, text };
+    return { ok: true, mock: true, text, usageEvents: [] };
   }
   // Diary uses its own instructions; the user's persona note is preserved so
   // the diary voice matches the assistant the user configured.
@@ -213,7 +237,12 @@ export async function createDiaryEntry(settings, snapshot, safetyIdentifier) {
     historyLimit: 1,
     store: false,
   };
-  return createChatResponse(diarySettings, [{ role: "user", content: userContent }], safetyIdentifier);
+  return createChatResponse(
+    diarySettings,
+    [{ role: "user", content: userContent }],
+    safetyIdentifier,
+    { purpose: "diary" }
+  );
 }
 
 // ---------- やさしいニュース分類 ----------
@@ -255,8 +284,22 @@ export function buildNewsPrompt(items, prefs = {}) {
  * 呼び出し側(server.mjs)がキーワード簡易フィルタに黙ってフォールバックする。
  */
 export async function classifyNews(settings, items, prefs, safetyIdentifier) {
-  if (!process.env.OPENAI_API_KEY) return { ok: false, reason: "no_key" };
-  if (!items.length) return { ok: true, classifications: new Map() };
+  const modelError = validateConfiguredModel(settings);
+  if (modelError) {
+    return {
+      ok: false,
+      reason: modelError.message,
+      errorCode: modelError.code,
+      classificationFallbackReason: "invalid_model",
+      usageEvents: [],
+    };
+  }
+  if (!process.env.OPENAI_API_KEY) {
+    return { ok: false, reason: "no_key", classificationFallbackReason: "no_key", usageEvents: [] };
+  }
+  if (!items.length) {
+    return { ok: true, classifications: new Map(), classificationFallbackReason: null, usageEvents: [] };
+  }
   const { instructions, userContent } = buildNewsPrompt(items, prefs);
   const result = await createChatResponse(
     {
@@ -269,9 +312,18 @@ export async function classifyNews(settings, items, prefs, safetyIdentifier) {
       responseFormat: "json",
     },
     [{ role: "user", content: userContent }],
-    safetyIdentifier
+    safetyIdentifier,
+    { purpose: "news" }
   );
-  if (!result.ok) return { ok: false, reason: result.error };
+  if (!result.ok) {
+    return {
+      ok: false,
+      reason: result.error,
+      errorCode: result.errorCode,
+      classificationFallbackReason: result.errorCode === "invalid_model" ? "invalid_model" : "provider_error",
+      usageEvents: result.usageEvents ?? [],
+    };
+  }
   try {
     const parsed = JSON.parse(result.text);
     const map = new Map();
@@ -287,9 +339,20 @@ export async function classifyNews(settings, items, prefs, safetyIdentifier) {
         matched_topics: Array.isArray(c.matched_topics) ? c.matched_topics.filter((t) => typeof t === "string") : [],
       });
     }
-    return { ok: true, classifications: map };
+    return {
+      ok: true,
+      classifications: map,
+      classificationFallbackReason: null,
+      usageEvents: result.usageEvents,
+    };
   } catch {
-    return { ok: false, reason: "invalid_json" };
+    // 応答本文が不正でもAPI料金は発生済みなので、usageだけは呼び出し側へ渡す。
+    return {
+      ok: false,
+      reason: "invalid_json",
+      classificationFallbackReason: "invalid_json",
+      usageEvents: result.usageEvents,
+    };
   }
 }
 
@@ -324,4 +387,22 @@ function truncate(s, n) {
 
 function normalizeSettings(settings) {
   return settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
+}
+
+function normalizeProviderCreatedAt(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  const date = new Date(value * 1000);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : undefined;
+}
+
+function invalidModelError(value) {
+  const error = new RangeError(`Unknown model: ${String(value)}`);
+  error.code = "invalid_model";
+  return error;
+}
+
+function validateConfiguredModel(settings) {
+  const normalized = normalizeSettings(settings);
+  if (normalized.model === undefined || normalized.model === null) return null;
+  return findModel(normalized.model) ? null : invalidModelError(normalized.model);
 }

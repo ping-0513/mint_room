@@ -20,7 +20,8 @@ When `OPENAI_API_KEY` is set, paid-provider endpoints only accept requests from 
 - **Chat** — GPT chat with regenerate, retry, loading states, localStorage history. OpenAI calls go through a server-side boundary (`POST /api/chat`); the key never reaches the browser.
 - **Diary** — the assistant writes its own gentle diary entries about your day (kind outside observer, never guilt).
 - **News** — gentle news: interest lanes, life-impact "worth knowing" lane, rumor lane with honest confidence labels; violent-crime detail filtered by default.
-- **Settings** — model, developer instructions, persona, temperature, top-p, max output tokens, reasoning effort (model-gated), response format, honestly disabled safety placeholders, tools placeholders, light/dark/system theme.
+- **Settings** — model (GPT-4o is pinned to `gpt-4o-2024-11-20`), developer instructions, persona, temperature, top-p, max output tokens, reasoning effort (model-gated), response format, honestly disabled safety placeholders, tools placeholders, light/dark/system theme.
+- **API cost estimate** — Responses usage is recorded locally without prompt/answer content. Settings shows the latest call, an inclusive date range, and this browser's all-time estimate in USD plus optional manually configured JPY. This is not an OpenAI invoice or account-wide total.
 - **Life** — tasks, shopping list, medication checklist, sleep schedule (local only).
 - **Calendar** — visual month grid with sample events.
 - **Images / Search** — honest placeholders; adapter boundary ready.

@@ -4,6 +4,7 @@ import {
   buildResponsesPayload,
   buildDiaryPrompt,
   classifyNews,
+  createChatResponse,
   createDiaryEntry,
   findModel,
   resolveActiveSkills,
@@ -16,12 +17,15 @@ const msgs = (n) =>
 
 test("default model is in MODELS", () => {
   assert.ok(findModel(DEFAULT_MODEL));
-  assert.ok(findModel("gpt-4o"));
+  assert.ok(findModel("gpt-4o-2024-11-20"));
+  assert.equal(findModel("gpt-4o"), null);
 });
 
-test("unknown model falls back to default", () => {
-  const p = buildResponsesPayload({ model: "nope" }, msgs(1));
-  assert.equal(p.model, DEFAULT_MODEL);
+test("unknown model is rejected instead of falling back to default", () => {
+  assert.throws(
+    () => buildResponsesPayload({ model: "nope" }, msgs(1)),
+    (error) => error.code === "invalid_model" && /Unknown model: nope/.test(error.message)
+  );
 });
 
 test("temperature/top_p sent only for models that support them", () => {
@@ -110,7 +114,72 @@ test("json response format maps to text.format", () => {
 test("store defaults to false and safety identifier is forwarded", () => {
   const p = buildResponsesPayload({ model: DEFAULT_MODEL }, msgs(1), "mint-room-x");
   assert.equal(p.store, false);
+  assert.equal(p.service_tier, "default");
   assert.equal(p.safety_identifier, "mint-room-x");
+});
+
+test("mock and rejected model responses never invent usage events", async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  try {
+    delete process.env.OPENAI_API_KEY;
+    const mock = await createChatResponse({}, msgs(1), "mint-room-test", { purpose: "chat" });
+    const invalid = await createChatResponse({ model: "gpt-4o" }, msgs(1), "mint-room-test", { purpose: "chat" });
+    assert.equal(mock.ok, true);
+    assert.deepEqual(mock.usageEvents, []);
+    assert.equal(invalid.ok, false);
+    assert.equal(invalid.errorCode, "invalid_model");
+    assert.deepEqual(invalid.usageEvents, []);
+  } finally {
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test("successful Responses usage becomes a content-free cost event", async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const previousFetch = globalThis.fetch;
+  try {
+    process.env.OPENAI_API_KEY = "sk-test-never-sent";
+    globalThis.fetch = async (_url, init) => {
+      const payload = JSON.parse(init.body);
+      assert.equal(payload.model, "gpt-4o-2024-11-20");
+      assert.equal(payload.service_tier, "default");
+      return new Response(JSON.stringify({
+        id: "resp_usage_test",
+        created_at: 1_784_516_400,
+        model: "gpt-4o-2024-11-20",
+        service_tier: "default",
+        output_text: "hello",
+        usage: {
+          input_tokens: 100,
+          input_tokens_details: { cached_tokens: 20 },
+          output_tokens: 10,
+          output_tokens_details: { reasoning_tokens: 0 },
+          total_tokens: 110,
+        },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    };
+
+    const result = await createChatResponse(
+      { model: "gpt-4o-2024-11-20" },
+      msgs(1),
+      "mint-room-test",
+      { purpose: "chat" }
+    );
+    assert.equal(result.ok, true);
+    assert.equal(result.text, "hello");
+    assert.equal(result.usageEvents.length, 1);
+    assert.equal(result.usageEvents[0].eventId, "resp_usage_test");
+    assert.equal(result.usageEvents[0].occurredAt, "2026-07-20T03:00:00.000Z");
+    assert.equal(result.usageEvents[0].purpose, "chat");
+    assert.equal(result.usageEvents[0].requestedServiceTier, "default");
+    assert.equal(result.usageEvents[0].actualServiceTier, "default");
+    assert.equal(result.usageEvents[0].estimatedUsdNano, "325000");
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
 });
 
 test("non-user/assistant roles are coerced to user, content stringified", () => {
@@ -180,7 +249,12 @@ test("日記とニュース分類は会話用Skill Packを実送信payloadへ混
       const payload = JSON.parse(init.body);
       payloads.push(payload);
       const outputText = payload.text?.format?.type === "json_object" ? '{"items":[]}' : "diary entry";
-      return new Response(JSON.stringify({ output_text: outputText }), {
+      return new Response(JSON.stringify({
+        model: payload.model,
+        service_tier: "default",
+        output_text: outputText,
+        usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+      }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
@@ -206,11 +280,95 @@ test("日記とニュース分類は会話用Skill Packを実送信payloadへ混
     assert.equal(diaryResult.ok, true);
     assert.equal(newsResult.ok, true);
     assert.equal(payloads.length, 2);
+    assert.equal(diaryResult.usageEvents[0].purpose, "diary");
+    assert.equal(newsResult.usageEvents[0].purpose, "news");
     for (const payload of payloads) {
       assert.doesNotMatch(payload.instructions, /Built-in Skill Pack:/);
+      assert.equal(payload.service_tier, "default");
     }
   } finally {
     globalThis.fetch = previousFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test("newsのJSONが壊れていても発生済みusageを返す", async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const previousFetch = globalThis.fetch;
+  try {
+    process.env.OPENAI_API_KEY = "sk-test-never-sent";
+    globalThis.fetch = async (_url, init) => {
+      const payload = JSON.parse(init.body);
+      return new Response(JSON.stringify({
+        model: payload.model,
+        service_tier: "default",
+        output_text: "not-json",
+        usage: { input_tokens: 12, output_tokens: 3, total_tokens: 15 },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    };
+
+    const result = await classifyNews(
+      {},
+      [{ id: "broken", source: "fixture", title: "title", summary: "summary" }],
+      {},
+      "mint-room-test"
+    );
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "invalid_json");
+    assert.equal(result.classificationFallbackReason, "invalid_json");
+    assert.equal(result.usageEvents.length, 1);
+    assert.equal(result.usageEvents[0].purpose, "news");
+    assert.equal(result.usageEvents[0].status, "estimated");
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test("newsの上流エラーをno_keyと区別し、失敗時usageを作らない", async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const previousFetch = globalThis.fetch;
+  try {
+    process.env.OPENAI_API_KEY = "sk-test-never-sent";
+    globalThis.fetch = async () => new Response(
+      JSON.stringify({ error: { message: "provider unavailable" } }),
+      { status: 503, headers: { "content-type": "application/json" } }
+    );
+    const result = await classifyNews(
+      {},
+      [{ id: "provider-error", source: "fixture", title: "title", summary: "summary" }],
+      {},
+      "mint-room-test"
+    );
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "provider unavailable");
+    assert.equal(result.classificationFallbackReason, "provider_error");
+    assert.deepEqual(result.usageEvents, []);
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test("diary and news reject the removed gpt-4o alias even in mock mode", async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  try {
+    delete process.env.OPENAI_API_KEY;
+    const diary = await createDiaryEntry(
+      { model: "gpt-4o" },
+      { date: "2026-07-20", visitedToday: false, life: {} },
+      "mint-room-test"
+    );
+    const news = await classifyNews({ model: "gpt-4o" }, [], {}, "mint-room-test");
+    assert.equal(diary.errorCode, "invalid_model");
+    assert.deepEqual(diary.usageEvents, []);
+    assert.equal(news.errorCode, "invalid_model");
+    assert.equal(news.classificationFallbackReason, "invalid_model");
+    assert.deepEqual(news.usageEvents, []);
+  } finally {
     if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previousKey;
   }

@@ -18,7 +18,7 @@
 - 日記・ニュース分類には適用しない
 - APIレスポンスにID・表示名だけを返し、回答には使用パックを控えめに表示する
 - 自動選択は設定から無効化できる。クライアントから特定パックを強制選択できない
-- `gpt-4o` を既存のモデル選択肢へ追加する（既定モデルは変更しない）
+- `gpt-4o-2024-11-20` 固定snapshotを既存のモデル選択肢へ追加する（既定モデルは変更しない）
 
 ## 制約
 
@@ -45,7 +45,7 @@
 ## 報告(実装者が記入)
 
 - 変更ファイル: `server/skills.mjs`, `server/skills.test.mjs`, `server/openai.mjs`, `server/openai.test.mjs`, `server.mjs`, `public/app.js`, `public/index.html`, `public/styles.css`, `public/settings.test.mjs`, `package.json`, `docs/tasks/README.md`, `docs/tasks/003-skill-packs.md`, `docs/agent-handoff.md`
-- 検証結果: `NODE_OPTIONS=--test-isolation=none npm test` は51/51成功、`npm run check` と `git diff --check` も成功。HTTPスモークで固定5パックと `gpt-4o`、料理・学習・明示無効化・設定OFFを確認。in-app browserで日本語の料理依頼に「🍳 料理」が表示され、幅375px・ダークモードで横スクロールなし、コンソール警告/エラーなしを確認。
+- 検証結果: `NODE_OPTIONS=--test-isolation=none npm test` は51/51成功、`npm run check` と `git diff --check` も成功。HTTPスモークで固定5パックとGPT-4oを確認し、後続タスク006で `gpt-4o-2024-11-20` 固定snapshotへ更新・旧設定移行を追加。料理・学習・明示無効化・設定OFFを確認。in-app browserで日本語の料理依頼に「🍳 料理」が表示され、幅375px・ダークモードで横スクロールなし、コンソール警告/エラーなしを確認。
 - 未確認・懸念: APIキーがないため実OpenAI応答は未確認。判定は追加課金のない保守的な固定ルールで、曖昧な文面は意図的にパックなしへフォールバックする。
 
 ## レビュー(相手モデルが記入)

@@ -74,6 +74,8 @@ body {
 .msg-skills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
 .msg-skills .badge { background: var(--surface); color: var(--text); }
 .skill-context { color: var(--text); font-size: 0.72rem; }
+.msg-cost, .entry-cost { margin-top: 6px; color: var(--text-soft); font-size: 0.75rem; }
+.entry-cost { margin-bottom: 0; }
 .msg-actions { display: flex; justify-content: flex-end; margin-top: 4px; }
 .copy-message-btn { inline-size: 7.25rem; }
 .copy-message-btn:disabled { opacity: 1; cursor: default; }
@@ -119,7 +121,7 @@ body {
 .card h2 { margin: 0 0 10px; font-size: 1.02rem; }
 .card label { display: block; margin: 10px 0 2px; font-size: 0.9rem; }
 .card label.row { display: flex; align-items: center; gap: 8px; }
-.card input[type="number"], .card input[type="text"], .card input[type="time"],
+.card input[type="number"], .card input[type="text"], .card input[type="time"], .card input[type="date"],
 .card select, .card textarea {
   width: 100%; padding: 7px 10px; border-radius: 10px; margin-top: 3px;
   border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font: inherit;
@@ -136,6 +138,35 @@ details summary { cursor: pointer; color: var(--text-soft); margin: 8px 0; }
   color: var(--text); font-size: 0.82rem;
 }
 .skill-pack-item .badge { color: var(--text); white-space: nowrap; }
+
+/* API cost ledger */
+.cost-card { grid-column: 1 / -1; }
+.cost-latest-box {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin: 14px 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface-2);
+}
+.cost-latest-box span, .cost-summary span { color: var(--text-soft); font-size: 0.8rem; }
+.cost-latest-box strong { color: var(--mint); }
+.cost-date-range, .cost-summary-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
+}
+.cost-date-range label { min-width: 0; }
+.cost-date-range input { min-width: 0; }
+.cost-summary-grid { margin: 12px 0; }
+.cost-summary {
+  display: grid; gap: 3px; min-width: 0; padding: 12px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2);
+}
+.cost-summary strong { overflow-wrap: anywhere; }
+.cost-summary small { color: var(--text-soft); overflow-wrap: anywhere; }
+.cost-history-list { display: grid; gap: 8px; max-height: 360px; overflow-y: auto; margin-top: 10px; }
+.cost-history-row { padding: 9px 10px; border: 1px solid var(--border); border-radius: 10px; }
+.cost-history-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.cost-history-head strong { font-size: 0.86rem; }
+.cost-history-head time { color: var(--text-soft); font-size: 0.76rem; }
+.cost-history-details { overflow-wrap: anywhere; margin-bottom: 0; }
+.cost-disclaimer { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 12px; }
 
 /* Lists (tasks / shopping / medication) */
 .list-items { list-style: none; padding: 0; margin: 8px 0; }
@@ -204,4 +235,5 @@ details summary { cursor: pointer; color: var(--text-soft); margin: 8px 0; }
   .chat-input-row { flex-direction: column; align-items: stretch; }
   .chat-buttons { flex-direction: row; }
   .msg { max-width: 92%; }
+  .cost-date-range, .cost-summary-grid { grid-template-columns: minmax(0, 1fr); }
 }

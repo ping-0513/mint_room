@@ -1,6 +1,23 @@
 // mint room frontend. No frameworks, no build step.
 // State: chat + settings + life lists live in localStorage only (no server persistence).
 
+import {
+  appendUsageEvents,
+  COST_LEDGER_KEY,
+  filterCostEvents,
+  formatEventCost,
+  formatJpyMicros,
+  formatStoredLocalTimestamp,
+  formatUsdNano,
+  localDateKey,
+  migrateStableModelSettings,
+  mergeCostLedgers,
+  parseCostLedger,
+  parseFxRateToMicros,
+  summarizeCostEvents,
+  validateDateRange,
+} from "./costs.js";
+
 "use strict";
 
 const LS = {
@@ -9,6 +26,7 @@ const LS = {
   life: "mintroom.life.v1",
   diary: "mintroom.diary.v1",
   news: "mintroom.news.v1",
+  costs: COST_LEDGER_KEY,
 };
 
 const DEFAULT_SETTINGS = {
@@ -28,10 +46,15 @@ const DEFAULT_SETTINGS = {
   promptCacheKey: "",
   historyLimit: 20,
   skillPacksEnabled: true,
+  // 空欄ならUSDだけを記録する。古くなる固定為替を暗黙の既定値にはしない。
+  usdJpyRate: "",
 };
 
 let settings = loadJSON(LS.settings, DEFAULT_SETTINGS);
 settings = { ...DEFAULT_SETTINGS, ...settings };
+const stableModelMigration = migrateStableModelSettings(settings);
+settings = stableModelMigration.settings;
+const stableModelMigrationSaved = !stableModelMigration.changed || save(LS.settings, settings);
 let chat = loadJSON(LS.chat, { messages: [] }); // [{role:"user"|"assistant", content}]
 let life = loadJSON(LS.life, {
   wakeTime: "", sleepTime: "",
@@ -39,6 +62,17 @@ let life = loadJSON(LS.life, {
 });
 let diary = loadJSON(LS.diary, { entries: {} }); // entries keyed by "YYYY-MM-DD"
 let news = loadJSON(LS.news, { interests: [], hiddenIds: [], lastResult: null });
+const initialCostLoad = loadCostLedger();
+let costLedger = initialCostLoad.ledger;
+let costLedgerWritable = initialCostLoad.ok;
+let costPersistenceWarning = initialCostLoad.error ?? "";
+let costMigrationWarning = stableModelMigrationSaved
+  ? ""
+  : "GPT-4o固定版への設定移行を保存できませんでした。再読み込み後も必ずモデル選択を確認してください。";
+let costSettingsWarning = "";
+let costEventWarning = "";
+const initialCostDate = localDateKey();
+let costRange = { from: `${initialCostDate.slice(0, 8)}01`, to: initialCostDate };
 let serverModels = null; // fetched from /api/status
 let serverSkillPacks = []; // /api/statusから受け取る公開メタデータだけを保持する
 let skillPackCatalogState = "loading"; // loading / ready / error を分け、誤ったoffline表示を避ける
@@ -52,7 +86,26 @@ function loadJSON(key, fallback) {
     return raw ? JSON.parse(raw) : structuredClone(fallback);
   } catch { return structuredClone(fallback); }
 }
-function save(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} }
+function save(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function loadCostLedger() {
+  try {
+    return parseCostLedger(localStorage.getItem(LS.costs));
+  } catch {
+    return {
+      ok: false,
+      ledger: parseCostLedger(null).ledger,
+      error: "利用額の保存領域を読み取れません。新しい記録はこの再読み込み後に失われます。",
+    };
+  }
+}
 const $ = (id) => document.getElementById(id);
 
 /* ---------- Theme ---------- */
@@ -70,11 +123,7 @@ $("tabs").addEventListener("click", (e) => {
   if (!btn) return;
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === btn));
   document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("active", p.id === `panel-${btn.dataset.tab}`));
-  // Newsタブを開いた時、情報が古ければ自動更新(30分ルール)
-  if (btn.dataset.tab === "news" && !newsBusy) {
-    const age = Date.now() - (news.lastResult?.fetchedAt ?? 0);
-    if (age > 30 * 60 * 1000) loadNewsFeed(false);
-  }
+  // Newsはタブを開いただけでは更新しない。有料AI分類はRefreshという明示操作だけで始める。
 });
 
 /* ---------- Chat ---------- */
@@ -114,6 +163,12 @@ function renderChat() {
         skills.appendChild(badge);
       }
       if (skills.childElementCount > 1) div.appendChild(skills);
+    }
+    if (m.role === "assistant" && Array.isArray(m.costEventIds) && m.costEventIds.length) {
+      const cost = document.createElement("div");
+      cost.className = "msg-cost";
+      cost.textContent = formatCostEventIds(m.costEventIds);
+      div.appendChild(cost);
     }
     if (m.role === "assistant") {
       const actions = document.createElement("div");
@@ -162,8 +217,9 @@ function createCopyButton(messageText) {
 }
 
 function updateChatButtons() {
-  sendBtn.disabled = sending;
-  regenBtn.disabled = sending || !chat.messages.some((m) => m.role === "user");
+  const modelUnavailable = Array.isArray(serverModels) && !serverModels.some((model) => model.id === settings.model);
+  sendBtn.disabled = sending || modelUnavailable;
+  regenBtn.disabled = sending || modelUnavailable || !chat.messages.some((m) => m.role === "user");
   $("clearChatBtn").disabled = sending;
 }
 
@@ -185,6 +241,7 @@ async function callChatAPI(messages) {
   return {
     text: String(data.text ?? ""),
     activeSkills: Array.isArray(data.activeSkills) ? data.activeSkills.slice(0, 1) : [],
+    usageEvents: Array.isArray(data.usageEvents) ? data.usageEvents : [],
   };
 }
 
@@ -201,7 +258,8 @@ async function sendMessage() {
   renderChat();
   try {
     const reply = await callChatAPI(chat.messages);
-    chat.messages.push({ role: "assistant", content: reply.text, activeSkills: reply.activeSkills, ts: Date.now() });
+    const costEventIds = recordProviderUsage(reply.usageEvents);
+    chat.messages.push({ role: "assistant", content: reply.text, activeSkills: reply.activeSkills, costEventIds, ts: Date.now() });
     save(LS.chat, chat);
   } catch (err) {
     // Roll back the optimistic user turn so Retry re-sends cleanly.
@@ -228,7 +286,8 @@ async function regenerate() {
   renderChat();
   try {
     const reply = await callChatAPI(chat.messages);
-    chat.messages.push({ role: "assistant", content: reply.text, activeSkills: reply.activeSkills, ts: Date.now() });
+    const costEventIds = recordProviderUsage(reply.usageEvents);
+    chat.messages.push({ role: "assistant", content: reply.text, activeSkills: reply.activeSkills, costEventIds, ts: Date.now() });
     save(LS.chat, chat);
   } catch (err) {
     chat.messages.push(...removed); // restore previous reply on failure
@@ -262,6 +321,7 @@ const SETTING_FIELDS = [
   ["maxOutputTokens", "set-maxOutputTokens", "number"], ["responseFormat", "set-responseFormat"],
   ["store", "set-store", "checkbox"], ["historyLimit", "set-historyLimit", "number"],
   ["skillPacksEnabled", "set-skillPacksEnabled", "checkbox"],
+  ["usdJpyRate", "set-usdJpyRate"],
 ];
 
 function bindSettings() {
@@ -271,10 +331,24 @@ function bindSettings() {
     if (kind === "checkbox") el.checked = Boolean(settings[key]);
     else el.value = settings[key];
     el.addEventListener("change", () => {
-      settings[key] = kind === "checkbox" ? el.checked : kind === "number" ? Number(el.value) : el.value;
-      save(LS.settings, settings);
+      const nextValue = kind === "checkbox" ? el.checked : kind === "number" ? Number(el.value) : el.value.trim();
+      if (key === "usdJpyRate" && nextValue !== "" && parseFxRateToMicros(nextValue) === null) {
+        el.setCustomValidity("1〜1000のUSD/JPYレートを入力してください。");
+        el.reportValidity();
+        el.value = settings[key];
+        return;
+      }
+      el.setCustomValidity("");
+      settings[key] = nextValue;
+      const saved = save(LS.settings, settings);
+      if (!saved && key === "usdJpyRate") {
+        costSettingsWarning = "USD/JPY設定を保存できませんでした。再読み込み後に失われます。";
+      }
+      if (saved && key === "usdJpyRate") costSettingsWarning = "";
+      if (saved && key === "model") costMigrationWarning = "";
       if (key === "theme") applyTheme();
       if (key === "model") updateModelDependentUI();
+      if (key === "usdJpyRate") renderCostDashboard();
     });
   }
 }
@@ -330,6 +404,14 @@ function updateModelDependentUI() {
   const tempSupported = m ? m.supportsTemperature : true;
   $("set-temperature").disabled = !tempSupported;
   $("set-topP").disabled = !tempSupported;
+  const warning = $("modelStatusWarning");
+  if (warning) {
+    warning.textContent = Array.isArray(serverModels) && !m
+      ? `保存されているモデル「${settings.model}」はこのサーバーでは使えません。課金前に別のモデルを選んでください。`
+      : "";
+    warning.classList.toggle("hidden", !warning.textContent);
+  }
+  updateChatButtons();
 }
 
 async function loadServerStatus() {
@@ -348,8 +430,11 @@ async function loadServerStatus() {
       sel.appendChild(opt);
     }
     if (!data.models.some((m) => m.id === settings.model)) {
-      settings.model = data.defaultModel;
-      save(LS.settings, settings);
+      const unavailable = document.createElement("option");
+      unavailable.value = settings.model;
+      unavailable.textContent = `Unavailable: ${settings.model}`;
+      unavailable.disabled = true;
+      sel.prepend(unavailable);
     }
     sel.value = settings.model;
     $("keyStatus").textContent = data.hasApiKey ? "🔑 API key set" : "🌱 mock mode (no API key)";
@@ -366,6 +451,236 @@ async function loadServerStatus() {
     renderSkillPackCatalog();
   }
 }
+
+/* ---------- API利用額台帳 ---------- */
+function recordProviderUsage(incoming) {
+  if (!Array.isArray(incoming) || incoming.length === 0) return [];
+  let latestLedger = costLedger;
+  if (costLedgerWritable) {
+    try {
+      const latestLoad = parseCostLedger(localStorage.getItem(LS.costs));
+      if (!latestLoad.ok) {
+        costLedgerWritable = false;
+        costPersistenceWarning = latestLoad.error;
+      } else {
+        latestLedger = mergeCostLedgers(costLedger, latestLoad.ledger);
+      }
+    } catch {
+      costLedgerWritable = false;
+      costPersistenceWarning = "利用額の保存領域を再確認できません。新しい記録は再読み込み後に失われます。";
+    }
+  }
+  const result = appendUsageEvents(latestLedger, incoming, { usdJpyRate: settings.usdJpyRate });
+  costLedger = result.ledger;
+  costEventWarning = "";
+  if (result.rejectedCount > 0) {
+    costEventWarning = `${result.rejectedCount}件の利用額イベントを安全に読み取れず、台帳へ追加しませんでした。`;
+  }
+
+  if (result.added.length > 0 && costLedgerWritable) {
+    try {
+      localStorage.setItem(LS.costs, JSON.stringify(costLedger));
+    } catch {
+      costLedgerWritable = false;
+      costPersistenceWarning = "利用額を保存できませんでした。この画面には表示しますが、再読み込み後に失われます。空き容量を確認してください。";
+    }
+  }
+  renderCostDashboard();
+
+  // 既存Response IDの再受信も会話側から同じ台帳イベントを参照できるようにする。
+  const requestedIds = incoming
+    .map((event) => typeof event?.eventId === "string" ? event.eventId : null)
+    .filter(Boolean);
+  return [...new Set(requestedIds)].filter((id) => costLedger.events.some((event) => event.eventId === id));
+}
+
+function findCostEvents(eventIds) {
+  const ids = new Set(Array.isArray(eventIds) ? eventIds : []);
+  return costLedger.events.filter((event) => ids.has(event.eventId));
+}
+
+function formatCostEventIds(eventIds) {
+  const events = findCostEvents(eventIds);
+  if (events.length === 0) return "今回の利用額は記録されていません";
+  if (events.length === 1) return formatEventCost(events[0]);
+  const summary = summarizeCostEvents(events);
+  return `今回 ${formatSummaryAmount(summary)} · ${events.length} API calls`;
+}
+
+function formatSummaryAmount(summary) {
+  if (!summary || summary.callCount === 0) return "記録なし";
+  if (summary.estimatedCount === 0) return "算出不可";
+  const usd = formatUsdNano(summary.usdNano);
+  if (summary.jpyConvertedCount === 0) return `約${usd}（円換算なし）`;
+  const incomplete = summary.unconvertedCount > 0 ? ` + ${summary.unconvertedCount}件は円未換算` : "";
+  return `約${formatJpyMicros(summary.jpyMicros)}${incomplete} (${usd})`;
+}
+
+function formatLedgerEventAmount(event) {
+  if (event.status !== "estimated") {
+    return event.status === "pricing_unavailable" ? "料金未登録・算出不可" : "usage未取得・算出不可";
+  }
+  const usd = formatUsdNano(event.usdNano);
+  return event.jpyMicros === null ? `${usd}（円換算なし）` : `${formatJpyMicros(event.jpyMicros)} (${usd})`;
+}
+
+function formatFxMicros(value) {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) return null;
+  const micros = BigInt(value);
+  const whole = micros / 1_000_000n;
+  const fraction = String(micros % 1_000_000n).padStart(6, "0").replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : String(whole);
+}
+
+function renderSummaryBlock(prefix, summary) {
+  const main = $(`${prefix}Main`);
+  const meta = $(`${prefix}Meta`);
+  if (!main || !meta) return;
+  main.textContent = formatSummaryAmount(summary);
+  const notes = [`${summary.callCount}回`];
+  if (summary.unavailableCount) notes.push(`${summary.unavailableCount}回は算出不可`);
+  notes.push(`input ${summary.tokens.input.toLocaleString()} / cached ${summary.tokens.cachedInput.toLocaleString()} / output ${summary.tokens.output.toLocaleString()} tokens`);
+  meta.textContent = notes.join(" · ");
+}
+
+function renderCostDashboard() {
+  const fromInput = $("costFrom");
+  const toInput = $("costTo");
+  if (!fromInput || !toInput) return;
+  fromInput.value = costRange.from;
+  toInput.value = costRange.to;
+
+  const rangeValidation = validateDateRange(costRange.from, costRange.to);
+  const rangeError = $("costRangeError");
+  rangeError.textContent = rangeValidation.ok ? "" : rangeValidation.error;
+  rangeError.classList.toggle("hidden", rangeValidation.ok);
+
+  const allEvents = costLedger.events;
+  const rangedEvents = rangeValidation.ok ? filterCostEvents(allEvents, costRange.from, costRange.to) : [];
+  renderSummaryBlock("costAll", summarizeCostEvents(allEvents));
+  renderSummaryBlock("costRange", summarizeCostEvents(rangedEvents));
+
+  const latest = [...allEvents].sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt))[0] ?? null;
+  $("costLatest").textContent = latest ? `${purposeLabel(latest.purpose)} · ${formatLedgerEventAmount(latest)}` : "まだ記録はありません";
+
+  const fxMicros = parseFxRateToMicros(settings.usdJpyRate);
+  $("costFxStatus").textContent = fxMicros === null
+    ? "円表示には手動レートが必要です。未設定中もUSDの利用額は記録します。"
+    : `新しい呼び出しから 1 USD = ${settings.usdJpyRate} JPY で固定します。過去分は変更しません。`;
+  $("costRecordingSince").textContent = `記録開始: ${new Date(costLedger.recordingStartedAt).toLocaleString("ja-JP")}`;
+
+  const warning = $("costStorageWarning");
+  const warningText = [costPersistenceWarning, costMigrationWarning, costSettingsWarning, costEventWarning]
+    .filter(Boolean)
+    .join(" ");
+  warning.textContent = warningText;
+  warning.classList.toggle("hidden", !warningText);
+
+  const list = $("costHistoryList");
+  list.innerHTML = "";
+  if (!rangeValidation.ok || rangedEvents.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "hint";
+    empty.textContent = rangeValidation.ok ? "この期間の利用記録はありません。" : "日付範囲を直すと履歴を表示します。";
+    list.appendChild(empty);
+    return;
+  }
+
+  const sorted = [...rangedEvents].sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
+  for (const event of sorted.slice(0, 50)) {
+    const row = document.createElement("div");
+    row.className = "cost-history-row";
+    const head = document.createElement("div");
+    head.className = "cost-history-head";
+    const label = document.createElement("strong");
+    label.textContent = `${purposeLabel(event.purpose)} · ${formatLedgerEventAmount(event)}`;
+    const time = document.createElement("time");
+    time.dateTime = event.occurredAt;
+    time.textContent = formatStoredLocalTimestamp(event);
+    head.append(label, time);
+    const details = document.createElement("div");
+    details.className = "hint cost-history-details";
+    const tokenText = event.tokens
+      ? `input ${event.tokens.input.toLocaleString()} (cached ${event.tokens.cachedInput.toLocaleString()}) / output ${event.tokens.output.toLocaleString()}`
+      : "tokens unavailable";
+    const fxText = formatFxMicros(event.fxMicros);
+    const priceReason = event.pricingUnavailableReason ? ` · unpriced: ${event.pricingUnavailableReason}` : "";
+    const modelText = event.pricedModel === event.actualModel
+      ? event.actualModel
+      : `${event.actualModel} (priced as ${event.pricedModel})`;
+    details.textContent = `${modelText} · ${tokenText} · ${fxText ? `1 USD = ${fxText} JPY` : "JPY rate not set"} · ${event.pricingVersion ?? "price version unavailable"}${priceReason}`;
+    row.append(head, details);
+    list.appendChild(row);
+  }
+  if (sorted.length > 50) {
+    const note = document.createElement("p");
+    note.className = "hint";
+    note.textContent = `この期間の最新50件を表示中（集計は${sorted.length}件すべてを含みます）。`;
+    list.appendChild(note);
+  }
+}
+
+function purposeLabel(purpose) {
+  return { chat: "Chat", diary: "Diary", news: "News AI分類" }[purpose] ?? purpose;
+}
+
+function bindCostDashboard() {
+  // fill操作や日付ピッカー選択の時点で即座に集計へ反映する。
+  $("set-usdJpyRate").addEventListener("input", (event) => {
+    const nextValue = event.target.value.trim();
+    if (nextValue !== "" && parseFxRateToMicros(nextValue) === null) return;
+    settings.usdJpyRate = nextValue;
+    if (!save(LS.settings, settings)) {
+      costSettingsWarning = "USD/JPY設定を保存できませんでした。再読み込み後に失われます。";
+    } else costSettingsWarning = "";
+    renderCostDashboard();
+  });
+  $("costFrom").addEventListener("input", (event) => {
+    costRange = { ...costRange, from: event.target.value };
+    renderCostDashboard();
+  });
+  $("costTo").addEventListener("input", (event) => {
+    costRange = { ...costRange, to: event.target.value };
+    renderCostDashboard();
+  });
+  renderCostDashboard();
+}
+
+// 別タブで利用額が増えた時も、次の自分の操作を待たず全期間表示へ反映する。
+window.addEventListener("storage", (event) => {
+  if (event.key !== LS.costs && event.key !== null) return;
+  const incoming = parseCostLedger(event.newValue);
+  // 別タブで明示的に削除された履歴は復活させず、その削除意図を優先する。
+  if (event.newValue === null) {
+    costLedger = incoming.ledger;
+    costLedgerWritable = true;
+    costPersistenceWarning = "";
+    renderCostDashboard();
+    return;
+  }
+  if (!incoming.ok) {
+    costLedgerWritable = false;
+    costPersistenceWarning = incoming.error;
+  } else {
+    const merged = mergeCostLedgers(costLedger, incoming.ledger);
+    const incomingIds = new Set(incoming.ledger.events.map((item) => item.eventId));
+    const needsUnionWrite = merged.recordingStartedAt !== incoming.ledger.recordingStartedAt ||
+      merged.events.some((item) => !incomingIds.has(item.eventId));
+    costLedger = merged;
+    costLedgerWritable = true;
+    costPersistenceWarning = "";
+    // 同時writeで片方が最後に勝っても、storage event受信側が和集合を再保存して収束させる。
+    if (needsUnionWrite) {
+      try {
+        localStorage.setItem(LS.costs, JSON.stringify(merged));
+      } catch {
+        costLedgerWritable = false;
+        costPersistenceWarning = "複数タブの利用額を統合しましたが、保存できませんでした。再読み込み後に失われます。";
+      }
+    }
+  }
+  renderCostDashboard();
+});
 
 /* ---------- Life lists ---------- */
 function renderList(container, key) {
@@ -533,6 +848,12 @@ function renderDiary() {
     body.className = "diary-text";
     body.textContent = e.text;
     card.append(head, body);
+    if (Array.isArray(e.costEventIds) && e.costEventIds.length) {
+      const cost = document.createElement("p");
+      cost.className = "entry-cost";
+      cost.textContent = formatCostEventIds(e.costEventIds).replace(/^今回/, "生成");
+      card.appendChild(cost);
+    }
     wrap.appendChild(card);
   }
   diaryWriteBtn.textContent = diary.entries[todayKey()] ? "Rewrite today's entry" : "Ask for today's entry";
@@ -553,8 +874,9 @@ async function generateDiary() {
     });
     const data = await res.json().catch(() => null);
     if (!data?.ok) throw new Error(data?.error || `Request failed (HTTP ${res.status})`);
+    const costEventIds = recordProviderUsage(data.usageEvents);
     // Existing entry is only replaced after a successful response.
-    diary.entries[todayKey()] = { text: data.text, generatedAt: Date.now(), mock: Boolean(data.mock) };
+    diary.entries[todayKey()] = { text: data.text, generatedAt: Date.now(), mock: Boolean(data.mock), costEventIds };
     save(LS.diary, diary);
   } catch (err) {
     diaryErrorText.textContent = err.message;
@@ -639,10 +961,21 @@ function renderNews() {
   }
   // fetchedAt=0 は「一度も取得成功していない」印なので経過時間を出さない
   const ageMin = result.fetchedAt ? Math.round((Date.now() - result.fetchedAt) / 60000) : null;
+  const fallbackLabels = {
+    no_key: "AI classification skipped (no API key)",
+    provider_error: "AI classification failed; cached/simple results shown",
+    invalid_json: "AI result invalid; cached/simple results shown",
+    invalid_model: "AI classification skipped (model unavailable)",
+  };
+  const fallbackLabel = fallbackLabels[result.classificationFallbackReason] ?? null;
+  const newsCost = Array.isArray(result.costEventIds) && result.costEventIds.length
+    ? ` · ${formatCostEventIds(result.costEventIds).replace(/^今回 /, "AI分類 ")}`
+    : "";
   newsStatus.textContent =
-    (result.classifiedBy === "keyword" ? "⚪ simple keyword mode (no API key) · " : "") +
+    (fallbackLabel ? `⚪ ${fallbackLabel} · ` : result.classifiedBy === "keyword" ? "⚪ simple keyword mode · " : "") +
     (ageMin === null ? "no fetch succeeded yet" : ageMin > 0 ? `${ageMin} min ago` : "just now") +
-    (result.feedErrors?.length ? ` · ${result.feedErrors.length} feed(s) unavailable` : "");
+    (result.feedErrors?.length ? ` · ${result.feedErrors.length} feed(s) unavailable` : "") +
+    newsCost;
   const visible = result.items.filter((it) => !news.hiddenIds.includes(it.id));
   let shown = 0;
   for (const [lane, head] of LANE_HEADS) {
@@ -738,7 +1071,10 @@ async function loadNewsFeed(force) {
     });
     const data = await res.json().catch(() => null);
     if (!data?.ok) throw new Error(data?.error || `Request failed (HTTP ${res.status})`);
-    news.lastResult = data;
+    const costEventIds = recordProviderUsage(data.usageEvents);
+    // usageイベントは専用台帳だけに保存し、ニュースキャッシュへ重複させない。
+    const { usageEvents: _usageEvents, ...newsResult } = data;
+    news.lastResult = { ...newsResult, costEventIds };
     save(LS.news, news);
   } catch (err) {
     // 失敗しても前回の結果は消さない(古い情報でも空より優しい)
@@ -766,6 +1102,7 @@ $("newsInterestForm").addEventListener("submit", (e) => {
 /* ---------- Init ---------- */
 applyTheme();
 bindSettings();
+bindCostDashboard();
 renderChat();
 renderSkillPackCatalog();
 initLife();

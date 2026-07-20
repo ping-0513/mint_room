@@ -114,6 +114,7 @@
         <button class="btn primary" id="newsRefreshBtn">Refresh</button>
         <span class="hint" id="newsStatus"></span>
       </div>
+      <p class="hint">Newsは開いただけでは更新しません。Refreshすると、APIキー設定時は選択中のモデルでAI分類を1回行うことがあります。</p>
       <div class="chat-error hidden" id="newsError">
         <span id="newsErrorText"></span>
         <button id="newsDismissBtn" class="btn small ghost">Dismiss</button>
@@ -171,6 +172,44 @@
           </select>
         </label>
         <p class="hint" id="reasoningHint">Only available on reasoning models.</p>
+        <p class="chat-error hidden" id="modelStatusWarning"></p>
+      </section>
+
+      <section class="card cost-card">
+        <h2>💴 利用料金（概算） <span class="badge">this browser</span></h2>
+        <label>USD/JPY（新しい呼び出し用）
+          <input type="number" id="set-usdJpyRate" min="1" max="1000" step="0.000001" inputmode="decimal" placeholder="例: 157.25">
+        </label>
+        <p class="hint" id="costFxStatus"></p>
+
+        <div class="cost-latest-box">
+          <span>直近の呼び出し</span>
+          <strong id="costLatest">まだ記録はありません</strong>
+        </div>
+
+        <div class="cost-date-range" aria-label="利用料金の集計期間">
+          <label>開始日 <input type="date" id="costFrom"></label>
+          <label>終了日 <input type="date" id="costTo"></label>
+        </div>
+        <p class="chat-error hidden" id="costRangeError"></p>
+
+        <div class="cost-summary-grid">
+          <div class="cost-summary">
+            <span>選択期間（両端を含む）</span>
+            <strong id="costRangeMain">記録なし</strong>
+            <small id="costRangeMeta"></small>
+          </div>
+          <div class="cost-summary">
+            <span>このブラウザでの全期間</span>
+            <strong id="costAllMain">記録なし</strong>
+            <small id="costAllMeta"></small>
+          </div>
+        </div>
+
+        <p class="hint" id="costRecordingSince"></p>
+        <p class="chat-error hidden" id="costStorageWarning" role="alert"></p>
+        <div class="cost-history-list" id="costHistoryList" aria-live="polite"></div>
+        <p class="hint cost-disclaimer">OpenAIのusageと確認時点の標準単価から計算する端末内の概算です。請求書、税、契約割引、他のアプリ・端末、応答を受信できなかった呼び出し、記録開始前の利用は含みません。料金表と手動為替は各履歴の発生時点で固定し、後から再計算しません。</p>
       </section>
 
       <section class="card">
@@ -245,6 +284,6 @@
     </div>
   </main>
 </div>
-<script src="app.js"></script>
+<script type="module" src="app.js"></script>
 </body>
 </html>

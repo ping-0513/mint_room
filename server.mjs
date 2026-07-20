@@ -84,8 +84,8 @@ export const server = http.createServer(async (req, res) => {
       if (!Array.isArray(messages) || messages.length === 0) {
         return sendJSON(res, 400, { ok: false, error: "messages must be a non-empty array." });
       }
-      const result = await createChatResponse(settings, messages, SAFETY_IDENTIFIER, { autoSkills: true });
-      return sendJSON(res, result.ok ? 200 : 502, result);
+      const result = await createChatResponse(settings, messages, SAFETY_IDENTIFIER, { autoSkills: true, purpose: "chat" });
+      return sendJSON(res, providerResultStatus(result), result);
     }
 
     if (url.pathname === "/api/diary" && req.method === "POST") {
@@ -101,7 +101,7 @@ export const server = http.createServer(async (req, res) => {
         return sendJSON(res, 400, { ok: false, error: "snapshot with a date is required." });
       }
       const result = await createDiaryEntry(settings, snapshot, SAFETY_IDENTIFIER);
-      return sendJSON(res, result.ok ? 200 : 502, result);
+      return sendJSON(res, providerResultStatus(result), result);
     }
 
     if (url.pathname === "/api/news" && req.method === "POST") {
@@ -123,6 +123,15 @@ export const server = http.createServer(async (req, res) => {
       // それまでは general レーンで表示される)
       const batch = unclassified.slice(0, 40);
       const llm = await classifyNews(settings, batch, prefs, SAFETY_IDENTIFIER);
+      if (llm.errorCode === "invalid_model") {
+        return sendJSON(res, 400, {
+          ok: false,
+          errorCode: llm.errorCode,
+          error: llm.reason,
+          classificationFallbackReason: llm.classificationFallbackReason,
+          usageEvents: llm.usageEvents ?? [],
+        });
+      }
       if (llm.ok && llm.classifications) {
         for (const [id, c] of llm.classifications) setCachedClassification(id, prefsKey, c);
       }
@@ -145,6 +154,8 @@ export const server = http.createServer(async (req, res) => {
         fetchedAt: feedResult.fetchedAt,
         fromCache: feedResult.fromCache,
         feedErrors: feedResult.errors,
+        classificationFallbackReason: llm.classificationFallbackReason ?? null,
+        usageEvents: llm.usageEvents ?? [],
         items,
       });
     }
@@ -179,6 +190,12 @@ export const server = http.createServer(async (req, res) => {
 function sendJSON(res, status, obj) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(obj));
+}
+
+// 入力由来のモデル不正だけは上流障害(502)と区別し、設定を直せる400で返す。
+function providerResultStatus(result) {
+  if (result.ok) return 200;
+  return result.errorCode === "invalid_model" ? 400 : 502;
 }
 
 function readBody(req, limit = 1_000_000) {

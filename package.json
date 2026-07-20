@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check server.mjs && node --check server/access.mjs && node --check server/skills.mjs && node --check server/openai.mjs && node --check server/news.mjs && node --check public/app.js",
+    "check": "node --check server.mjs && node --check server/access.mjs && node --check server/skills.mjs && node --check server/costs.mjs && node --check server/openai.mjs && node --check server/news.mjs && node --check public/costs.js && node --check public/app.js",
     "test": "node --test"
   },
   "engines": {

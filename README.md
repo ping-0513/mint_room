@@ -13,12 +13,14 @@ npm test                     # unit tests (node:test, no test framework needed)
 
 Without an API key the app runs in clearly-labeled **mock mode** so the UI is fully testable.
 
+When `OPENAI_API_KEY` is set, paid-provider endpoints only accept requests from the same computer (`localhost`). The app has no public authentication or rate limiting yet, so do not expose paid API access to a LAN or public host.
+
 ## What's here
 
 - **Chat** — GPT chat with regenerate, retry, loading states, localStorage history. OpenAI calls go through a server-side boundary (`POST /api/chat`); the key never reaches the browser.
 - **Diary** — the assistant writes its own gentle diary entries about your day (kind outside observer, never guilt).
 - **News** — gentle news: interest lanes, life-impact "worth knowing" lane, rumor lane with honest confidence labels; violent-crime detail filtered by default.
-- **Settings** — model, developer instructions, persona, temperature, top-p, max output tokens, reasoning effort (model-gated), response format, safety section, tools placeholders, light/dark/system theme.
+- **Settings** — model, developer instructions, persona, temperature, top-p, max output tokens, reasoning effort (model-gated), response format, honestly disabled safety placeholders, tools placeholders, light/dark/system theme.
 - **Life** — tasks, shopping list, medication checklist, sleep schedule (local only).
 - **Calendar** — visual month grid with sample events.
 - **Images / Search** — honest placeholders; adapter boundary ready.
@@ -28,6 +30,7 @@ Coding agents: read `AGENTS.md` first; work is assigned via `docs/tasks/` (see `
 ## Architecture
 
 - `server.mjs` — zero-dependency Node HTTP server (static files + API routes).
+- `server/access.mjs` — localhost-only guard for paid-provider requests while public auth is absent.
 - `server/openai.mjs` — the single OpenAI adapter; all request payload construction lives here.
 - `public/` — vanilla HTML/CSS/JS frontend, no build step.
 

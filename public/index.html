@@ -200,28 +200,27 @@
 
       <section class="card">
         <h2>🛡️ Safety</h2>
-        <p class="hint">App-level safety handling. This cannot and does not disable OpenAI's own policy enforcement.</p>
-        <label>Safety mode
-          <select id="set-safetyMode">
-            <option value="standard">Standard</option>
-            <option value="stricter">Stricter</option>
-            <option value="debug">Development / debug</option>
+        <p class="hint">App-level safety controls are planned. OpenAI's own policy enforcement always applies.</p>
+        <label>Safety mode <span class="badge">placeholder</span>
+          <select id="set-safetyMode" disabled title="Safety modes are not implemented yet.">
+            <option value="standard">Standard (current behavior)</option>
           </select>
         </label>
-        <label class="row"><input type="checkbox" id="set-moderationPrecheck"> Moderation precheck <span class="badge">placeholder</span></label>
-        <p class="hint">Planned: check input with the OpenAI moderation endpoint (server-side) before generating. Not implemented yet — this toggle does nothing.</p>
+        <p class="hint">Stricter and development modes are not implemented yet, so this control is disabled.</p>
+        <label class="row"><input type="checkbox" id="set-moderationPrecheck" disabled title="Moderation precheck is not implemented yet."> Moderation precheck <span class="badge">placeholder</span></label>
+        <p class="hint">Planned: check input with the OpenAI moderation endpoint (server-side) before generating.</p>
         <label>Moderation behavior
-          <select id="set-moderationBehavior">
-            <option value="block">Block and show a message</option>
-            <option value="warn">Warn only</option>
-            <option value="log">Developer logging</option>
+          <select id="set-moderationBehavior" disabled title="Available after moderation precheck is implemented.">
+            <option value="block">Unavailable until moderation is implemented</option>
           </select>
         </label>
         <details>
           <summary>Advanced privacy</summary>
           <label class="row"><input type="checkbox" id="set-store"> Allow OpenAI to store responses (<code>store</code>)</label>
           <p class="hint">Off by default for privacy. A stable anonymous <code>safety_identifier</code> is generated server-side — never your email or name.</p>
-          <label>Prompt cache key <input type="text" id="set-promptCacheKey" placeholder="developer placeholder — not sent"></label>
+          <label>Prompt cache key <span class="badge">placeholder</span>
+            <input type="text" id="set-promptCacheKey" disabled title="Prompt cache key is not sent yet." placeholder="not sent yet">
+          </label>
         </details>
       </section>
 

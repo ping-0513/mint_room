@@ -1,16 +1,17 @@
 # Agent handoff — mint room
 
-Status: FIRST FOUNDATION PASS COMPLETE AND VERIFIED (2026-07-20). This file is the source of truth for the next agent.
+Status: FOUNDATION COMPLETE; LOCAL PAID-API GUARD + HONEST SAFETY PLACEHOLDERS UNIT/HTTP VERIFIED, BROWSER QA PENDING (2026-07-20). This file is the source of truth for the next agent.
 
 ## Current repo state
 
 - Stack: plain Node.js (>=18, tested on v22) HTTP server + static vanilla HTML/CSS/JS frontend. **One npm dependency** (`fast-xml-parser`, user-approved for news RSS parsing) — `npm install` IS required before `npm start`.
   - Rationale: repo was empty, session time was constrained. Migrating to Next.js/React/TS later is fine; the adapter and settings schema port as-is.
-- Branch: `claude/assistant-app-foundation-jvhrba` (pushed).
+- Review-prep branch: `codex/pr-triage-hardening` (local; not pushed).
 
 ## Files
 
-- `server.mjs` — HTTP server: serves `public/`, `POST /api/chat` (server-side OpenAI boundary), `GET /api/status` (key-configured flag + model list; never exposes the key). Generates a per-instance anonymous `safety_identifier` (UUID-based, no PII).
+- `server.mjs` — HTTP server: serves `public/`, `POST /api/chat` (server-side OpenAI boundary), `GET /api/status` (key-configured flag + model list; never exposes the key). Generates a per-instance anonymous `safety_identifier` (UUID-based, no PII). Paid-provider POST routes reject non-local requests when `OPENAI_API_KEY` is set.
+- `server/access.mjs`, `server/access.test.mjs` — pure localhost-request guard and its regression tests. The guard checks both the socket address and Host header so LAN clients and public reverse-proxy hosts cannot spend the configured API key.
 - `server/openai.mjs` — **the single OpenAI adapter.** All payload construction is in `buildResponsesPayload()`. Model list + capability flags in `MODELS`. Mock mode when `OPENAI_API_KEY` is unset (clearly labeled in replies). Also holds the diary prompt/generation (`buildDiaryPrompt`/`createDiaryEntry`) and news classification (`buildNewsPrompt`/`classifyNews`).
 - `server/news.mjs` — RSS2.0/Atom fetch+parse (fast-xml-parser), feed cache, keyword fallback filter, classification cache helpers.
 - `server/openai.test.mjs`, `server/news.test.mjs` — unit tests (`npm test`).
@@ -33,6 +34,7 @@ npm test                        # unit tests (Node built-in node:test)
 ## What works now (verified)
 
 - Server boots; `GET /` serves the app; `GET /api/status` and `POST /api/chat` verified via curl (mock mode).
+- When `OPENAI_API_KEY` is configured, `/api/chat`, `/api/diary`, and `/api/news` only permit localhost requests. Public access remains unsupported until real authentication and rate limiting are designed.
 - Chat: input clears on send, double-send guarded (`sending` flag + disabled buttons), loading indicator, error banner with Retry/Dismiss, failed sends roll back and restore the input text.
 - **Regenerate** re-requests a reply for the same last user turn: it splices off the trailing assistant reply, never re-appends the user message, and restores the old reply if the retry fails.
 - Chat history persists in localStorage (`mintroom.chat.v1`); only the last `historyLimit` messages (not turn pairs) are sent to the API — UI label says "messages".
@@ -47,9 +49,8 @@ npm test                        # unit tests (Node built-in node:test)
 ## Mock/placeholder inventory (all labeled in the UI — nothing fakes results)
 
 - Chat replies when no API key is set (labeled "mock mode" in reply text and header status).
-- Moderation precheck toggle — does nothing yet (labeled "placeholder").
+- Safety mode, moderation precheck/behavior, and prompt cache key — disabled and labeled as placeholders until their server-side behavior exists.
 - Web search / image input / image generation / streaming toggles — disabled with "coming soon"/"next step" badges.
-- Prompt cache key field — stored locally, not sent.
 - Calendar events — sample data, view-only.
 - Real OpenAI call path (`createChatResponse`) is implemented but NOT yet exercised against the live API from this environment (no key available). The payload shape was verified by direct invocation of `buildResponsesPayload`.
 
@@ -67,13 +68,15 @@ npm test                        # unit tests (Node built-in node:test)
 | Response format JSON | `text.format = {type:"json_object"}` | mapped (advanced) |
 | Store responses | `store` (default **false** for privacy) | mapped |
 | (server-generated) | `safety_identifier` | mapped; anonymous UUID, no PII |
-| Safety mode, moderation behavior, history limit, theme, tools toggles | — | intentionally app-only, not sent |
-| Moderation precheck, prompt cache key, streaming | — | placeholders, not sent |
+| History limit, theme | — | intentionally app-only, not sent |
+| Safety mode, moderation precheck/behavior, prompt cache key, streaming, tools toggles | — | disabled placeholders, not sent |
 
 Not mapped yet (deliberately): `tools`, `stream`, `prompt_cache_key`, moderation endpoint, image content parts, structured-output JSON schema.
 
 ## Verification run
 
+- PR-triage hardening 2026-07-20: `NODE_OPTIONS=--test-isolation=none npm test` → 30/30 pass, including localhost/LAN/public-host access tests and disabled-placeholder UI tests; `npm run check` → pass. Plain isolated `npm test` could not start child test processes in the Windows sandbox (`spawn EPERM`), so the same full suite was run in-process through the standard npm script.
+- HTTP smoke: localhost mock `/api/status` and `/api/chat` → 200; an API-key-configured request with public Host header → 403 before any provider call. In-app browser control was unavailable in this session, so the Safety card's dark-mode/mobile visual appearance remains unverified.
 - `npm test` → 24/24 pass (payload mapping, diary prompt, news: RSS/Atom fixture parsing, broken-XML tolerance, stable IDs, keyword block/interest lanes, classification prompt content, block-list overreach guard). News endpoint smoke-tested: graceful degradation with all feeds failing (ok:true + feedErrors), bad body → 400. Real RSS fetch and real LLM classification NOT verifiable from this sandbox (no outbound network, no API key).
 - (superseded) `npm test` → 16/16 pass (`server/openai.test.mjs`, Node built-in `node:test`, zero dependencies: 11 payload-mapping tests — capability gating, clamping, history trim — plus 5 diary-prompt tests). Diary endpoint smoke-tested via curl: visited/absent mock entries, missing snapshot → 400.
 - Brushup 2026-07-20 also fixed: Windows path handling (`fileURLToPath` instead of `URL.pathname`), percent-encoded static paths + hardened traversal guard (verified with curl `--path-as-is`, returns 403), 413 delivered for oversized bodies (was: connection killed before response), theme-toggle dead line, failed-send no longer clobbers newly typed input, model-fallback now persisted, "turns"→"messages" label honesty.

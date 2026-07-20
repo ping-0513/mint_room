@@ -199,9 +199,7 @@ const SETTING_FIELDS = [
   ["developerInstructions", "set-developerInstructions"], ["persona", "set-persona"],
   ["temperature", "set-temperature", "number"], ["topP", "set-topP", "number"],
   ["maxOutputTokens", "set-maxOutputTokens", "number"], ["responseFormat", "set-responseFormat"],
-  ["safetyMode", "set-safetyMode"], ["moderationPrecheck", "set-moderationPrecheck", "checkbox"],
-  ["moderationBehavior", "set-moderationBehavior"], ["store", "set-store", "checkbox"],
-  ["promptCacheKey", "set-promptCacheKey"], ["historyLimit", "set-historyLimit", "number"],
+  ["store", "set-store", "checkbox"], ["historyLimit", "set-historyLimit", "number"],
 ];
 
 function bindSettings() {

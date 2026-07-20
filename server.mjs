@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { MODELS, DEFAULT_MODEL, createChatResponse, createDiaryEntry, classifyNews } from "./server/openai.mjs";
 import { getNews, keywordClassify, prefsCacheKey, getCachedClassification, setCachedClassification } from "./server/news.mjs";
+import { isLocalPaidProviderRequest } from "./server/access.mjs";
 
 const PORT = Number(process.env.PORT) || 3000;
 // fileURLToPath keeps this working on Windows too (URL.pathname would not).
@@ -17,6 +18,7 @@ const PUBLIC_DIR = fileURLToPath(new URL("./public/", import.meta.url));
 // Stable, privacy-preserving safety identifier for this server instance.
 // Deliberately NOT derived from email/name/any personal data.
 const SAFETY_IDENTIFIER = `mint-room-${randomUUID()}`;
+const PAID_PROVIDER_PATHS = new Set(["/api/chat", "/api/diary", "/api/news"]);
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -27,9 +29,22 @@ const MIME = {
   ".json": "application/json; charset=utf-8",
 };
 
-const server = http.createServer(async (req, res) => {
+export const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
+
+    // 公開用の認証・レート制限がないため、APIキー利用時はローカル端末だけに限定する。
+    if (
+      req.method === "POST" &&
+      PAID_PROVIDER_PATHS.has(url.pathname) &&
+      process.env.OPENAI_API_KEY &&
+      !isLocalPaidProviderRequest(req.socket.remoteAddress, req.headers.host)
+    ) {
+      return sendJSON(res, 403, {
+        ok: false,
+        error: "Paid provider access is limited to localhost. Use mock mode for remote access.",
+      });
+    }
 
     if (url.pathname === "/api/status" && req.method === "GET") {
       return sendJSON(res, 200, {

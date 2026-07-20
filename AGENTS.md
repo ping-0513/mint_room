@@ -49,6 +49,7 @@ Documented failure: reusing heavy animations everywhere, generic over-decorated 
 - No marketing-style callouts, banners, gradients, or emphasis boxes unless the user asked. One `hint` class paragraph is the standard way to explain something.
 - Never cause layout shift: reserve space for anything that loads or expands. Verify every UI change in dark mode too.
 - When unsure how a UI element should look, copy the nearest existing component (cards, chips, badges) instead of inventing a new style.
+- Full how-to with concrete recipes and an ugliness catalog: `docs/ui-recipes.md` (ACTIVE guideline, Japanese). Its core rule: beautiful UI makes FEW decisions applied consistently — never invent a new color/radius/shadow/spacing when an existing token or component exists.
 
 ## Rule 5 — Stuck-loop circuit breaker (counters thrashing)
 

@@ -72,3 +72,31 @@ test("Newsはタブを開いただけで有料分類せず、失敗理由もno A
     assert.match(app, new RegExp(reason));
   }
 });
+
+test("Backupは検証前にdownloadせず、進行中AIと復元後の古いsaveを遮断する", () => {
+  for (const id of [
+    "exportDataBtn", "importDataBtn", "importDataFile", "importPreview",
+    "importPreviewHeading", "importBlockedReason", "confirmImportBtn", "cancelImportBtn", "backupStatus",
+  ]) {
+    assert.match(html, new RegExp(`id=["']${id}["']`));
+  }
+  assert.match(html, /id="importPreviewHeading"[^>]*tabindex="-1"/);
+  assert.match(html, /id="backupStatus"[^>]*tabindex="-1"/);
+  const backupSection = app.slice(
+    app.indexOf("\/\* ---------- データのバックアップ / 復元 ---------- \*\/"),
+    app.indexOf("\/\* ---------- API利用額台帳 ---------- \*\/")
+  );
+  const exportSection = backupSection.slice(
+    backupSection.indexOf("async function exportAllData"),
+    backupSection.indexOf("function resetImportPreview")
+  );
+  assert.ok(exportSection.indexOf("inspectBackupText(text)") < exportSection.indexOf("downloadBackupDocument(documentValue"));
+  assert.match(backupSection, /hasActiveDataWrites\(\)/);
+  assert.match(backupSection, /checkImportPlanCurrent\(localStorage/);
+  assert.match(backupSection, /importCommitted = true;[\s\S]*applyImportPlan/);
+  assert.match(backupSection, /window\.location\.reload\(\);/);
+  assert.doesNotMatch(backupSection, /setTimeout\(\(\) => window\.location\.reload/);
+  assert.match(backupSection, /setBackupBusy\(false\);\s*\$\("confirmImportBtn"\)\.focus\(\);/);
+  assert.match(backupSection, /rollbackOk === false[\s\S]*\$\("backupStatus"\)\.focus\(\);/);
+  assert.match(app, /function save\(key, value\) \{\s*if \(importCommitted\) return false;/);
+});

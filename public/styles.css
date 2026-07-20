@@ -139,6 +139,24 @@ details summary { cursor: pointer; color: var(--text-soft); margin: 8px 0; }
 }
 .skill-pack-item .badge { color: var(--text); white-space: nowrap; }
 
+/* 端末内データのバックアップ */
+.backup-tools { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 12px; }
+.backup-heading { margin: 0 0 4px; font-size: 0.95rem; }
+.backup-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.backup-status { min-height: 1.3em; overflow-wrap: anywhere; }
+.backup-status.error { color: var(--danger); }
+.backup-preview {
+  margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface-2); overflow-wrap: anywhere;
+}
+.backup-preview-heading { margin: 0; font-size: 0.9rem; }
+.backup-preview-list { margin: 8px 0; padding-left: 1.25rem; font-size: 0.82rem; }
+.backup-preview-list li { margin: 3px 0; overflow-wrap: anywhere; }
+.card label.backup-recovery {
+  align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); margin: 10px 0;
+}
+
 /* API cost ledger */
 .cost-card { grid-column: 1 / -1; }
 .cost-latest-box {

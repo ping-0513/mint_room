@@ -158,6 +158,33 @@
         </label>
         <p class="hint">Dark mode keeps the mint identity with soft accents — easier on the eyes.</p>
         <div id="apiKeyHelp" class="hint"></div>
+
+        <div class="backup-tools">
+          <h3 class="backup-heading">📦 Data backup</h3>
+          <p class="hint">会話・設定・Life・日記・ニュース・利用料金をJSONへ保存します。このアプリのOPENAI_API_KEYはサーバー側にあり含まれません。ファイルには会話や将来のmintroomデータが平文で入るため、安全な場所で保管してください。</p>
+          <div class="backup-actions">
+            <button type="button" class="btn" id="exportDataBtn">Export data</button>
+            <button type="button" class="btn" id="importDataBtn">Import data</button>
+            <input class="hidden" type="file" id="importDataFile" accept=".json,application/json" aria-hidden="true" tabindex="-1">
+          </div>
+          <p class="hint backup-status" id="backupStatus" role="status" aria-live="polite" tabindex="-1"></p>
+
+          <div class="backup-preview hidden" id="importPreview" aria-live="polite">
+            <h4 class="backup-preview-heading" id="importPreviewHeading" tabindex="-1">Import preview</h4>
+            <p class="hint" id="importPreviewMeta"></p>
+            <ul class="backup-preview-list" id="importPreviewList"></ul>
+            <p class="hint">Importに含まれない未知のmint roomデータは残します。実行前に、ほかのmint roomタブを閉じてください。</p>
+            <label class="row hidden backup-recovery" id="costRecoveryRow">
+              <input type="checkbox" id="costRecoveryConsent">
+              <span id="costRecoveryText"></span>
+            </label>
+            <p class="hint hidden" id="importBlockedReason"></p>
+            <div class="backup-actions">
+              <button type="button" class="btn primary" id="confirmImportBtn" disabled title="ファイルを確認してから実行できます。">Import and reload</button>
+              <button type="button" class="btn ghost" id="cancelImportBtn">Cancel</button>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section class="card">

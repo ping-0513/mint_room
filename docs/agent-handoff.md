@@ -1,23 +1,27 @@
 # Agent handoff — mint room
 
-Status: FIRST FOUNDATION PASS COMPLETE AND VERIFIED (2026-07-20). This file is the source of truth for the next agent.
+Status: FOUNDATION COMPLETE; GPT-4O FIXED SNAPSHOT + LOCAL API COST LEDGER + PAID-API GUARDS UNIT/HTTP/BROWSER VERIFIED (2026-07-20). This file is the source of truth for the next agent.
 
 ## Current repo state
 
 - Stack: plain Node.js (>=18, tested on v22) HTTP server + static vanilla HTML/CSS/JS frontend. **One npm dependency** (`fast-xml-parser`, user-approved for news RSS parsing) — `npm install` IS required before `npm start`.
   - Rationale: repo was empty, session time was constrained. Migrating to Next.js/React/TS later is fine; the adapter and settings schema port as-is.
-- Branch: `claude/assistant-app-foundation-jvhrba` (pushed).
+- Review-prep branch: `codex/mint-room-skills` (local; not pushed).
 
 ## Files
 
-- `server.mjs` — HTTP server: serves `public/`, `POST /api/chat` (server-side OpenAI boundary), `GET /api/status` (key-configured flag + model list; never exposes the key). Generates a per-instance anonymous `safety_identifier` (UUID-based, no PII).
+- `server.mjs` — HTTP server: serves `public/`, `POST /api/chat` (server-side OpenAI boundary), `GET /api/status` (key-configured flag + model list; never exposes the key). Generates a per-instance anonymous `safety_identifier` (UUID-based, no PII). Binds to `127.0.0.1` by default; `HOST` is an explicit opt-in override.
+- `server/access.mjs`, `server/access.test.mjs` — pure paid-provider request guard and regression tests. It requires loopback+local Host, JSON content, same Origin when present, and rejects browser-declared cross-site requests.
 - `server/openai.mjs` — **the single OpenAI adapter.** All payload construction is in `buildResponsesPayload()`. Model list + capability flags in `MODELS`. Mock mode when `OPENAI_API_KEY` is unset (clearly labeled in replies). Also holds the diary prompt/generation (`buildDiaryPrompt`/`createDiaryEntry`) and news classification (`buildNewsPrompt`/`classifyNews`).
-- `server/news.mjs` — RSS2.0/Atom fetch+parse (fast-xml-parser), feed cache, keyword fallback filter, classification cache helpers.
-- `server/openai.test.mjs`, `server/news.test.mjs` — unit tests (`npm test`).
+- `server/costs.mjs`, `server/costs.test.mjs` — server-owned, versioned Standard price registry and content-free Responses usage event normalization. Uses integer nano-USD/token + BigInt; missing usage/model/default service tier is never guessed as zero.
+- `server/skills.mjs`, `server/skills.test.mjs` — fixed, server-owned conversation Skill Pack registry and deterministic latest-user-message router. It can apply at most one of cooking/planning/writing/learning/troubleshooting; unknown/client-forged IDs never inject instructions.
+- `server/news.mjs` — RSS2.0/Atom fetch+parse (fast-xml-parser), HTTP(S)-only URL normalization, feed cache, keyword fallback filter, classification cache helpers.
+- `server/openai.test.mjs`, `server/news.test.mjs`, `public/costs.test.mjs` — unit tests (`npm test`).
 - `AGENTS.md`, `docs/collaboration-protocol.md`, `docs/tasks/` — agent rules and the Claude×Codex ticket workflow.
-- `public/index.html` — tab shell (Chat / Life / Calendar / Images / Search / Settings), settings markup.
+- `public/index.html` — tab shell (Chat / Life / Calendar / Images / Search / Settings), settings and cost-dashboard markup.
 - `public/styles.css` — pastel mint theme; light/dark via CSS variables + `[data-theme="dark"]`; system preference respected.
-- `public/app.js` — chat state machine, settings binding + localStorage, life lists, calendar grid, tabs.
+- `public/app.js` — chat state machine, settings binding + localStorage, cost recording/rendering, life lists, calendar grid, tabs.
+- `public/costs.js` — pure local cost-ledger validation, dedupe, fixed-at-recording FX conversion, inclusive date filtering, exact aggregation and formatting.
 - `.env.example`, `.gitignore`, `package.json` (scripts only), `README.md`.
 
 ## How to run
@@ -25,7 +29,7 @@ Status: FIRST FOUNDATION PASS COMPLETE AND VERIFIED (2026-07-20). This file is t
 ```
 npm install                     # required since 2026-07-20 (fast-xml-parser)
 export OPENAI_API_KEY=sk-...   # optional; omit for clearly-labeled mock mode
-npm start                       # = node server.mjs → http://localhost:3000
+npm start                       # = node server.mjs → http://127.0.0.1:3000
 npm run check                   # node --check on all JS entry points
 npm test                        # unit tests (Node built-in node:test)
 ```
@@ -33,23 +37,26 @@ npm test                        # unit tests (Node built-in node:test)
 ## What works now (verified)
 
 - Server boots; `GET /` serves the app; `GET /api/status` and `POST /api/chat` verified via curl (mock mode).
+- `/api/chat`, `/api/diary`, and `/api/news` require JSON. When `OPENAI_API_KEY` is configured they additionally require loopback+local Host and same-Origin browser requests; cross-site simple POSTs cannot spend the key. Public access remains unsupported until real authentication and rate limiting are designed.
 - Chat: input clears on send, double-send guarded (`sending` flag + disabled buttons), loading indicator, error banner with Retry/Dismiss, failed sends roll back and restore the input text.
 - **Regenerate** re-requests a reply for the same last user turn: it splices off the trailing assistant reply, never re-appends the user message, and restores the old reply if the retry fails.
+- Every settled assistant answer has a low-key Copy button. It copies only `.msg-content` (not Skill Pack badges/UI labels), shows success or failure for ~1.5 seconds, disables during the operation, and never appears on user/pending messages.
 - Chat history persists in localStorage (`mintroom.chat.v1`); only the last `historyLimit` messages (not turn pairs) are sent to the API — UI label says "messages".
-- Settings persist in localStorage (`mintroom.settings.v1`), grouped: General/Appearance, Model, Behavior, Safety, Tools.
+- Settings persist in localStorage (`mintroom.settings.v1`), grouped: General/Appearance, Model, local API cost estimate, Behavior, Safety, Tools.
 - Model-dependent gating: reasoning-effort select and temperature/top-p disable per model capability flags served by `/api/status`.
+- Conversation Skill Packs: normal chat only can automatically select at most one fixed pack (cooking/planning/writing/learning/troubleshooting), inject its fixed guidance into Responses `instructions`, and show the selected ID/display name on the answer. Settings can disable routing. Diary/news never opt in. GPT-4o uses `gpt-4o-2024-11-20`; a saved legacy `gpt-4o` value, if present, is defensively migrated to that snapshot without changing the default model.
 - Life tab: tasks / shopping / medication checklists + wake/sleep times, localStorage-persisted (`mintroom.life.v1`).
 - Calendar: month grid, prev/next, today highlight, **sample events only** (labeled in UI).
 - Theme: light/dark/system, mint identity kept in dark mode.
-- **Gentle news (added 2026-07-20, stages N1–N3 of `docs/gentle-news-design.md`):** News tab with interest-topic chips (local, `mintroom.news.v1`), lanes (interest / rumor / essential / general), confidence badges (公式/報道/噂/推測) + AI comment, hide-per-item, heavy items marked ⚠️ with softened summaries. Server: `server/news.mjs` (RSS2.0+Atom parse via new dependency `fast-xml-parser` — approved by user; per-feed failure tolerance; 30-min cache; keyword fallback filter) + `classifyNews` batch LLM classification in `server/openai.mjs` (JSON output, per-item validation, classification cache) + `POST /api/news`. Without an API key runs in labeled "simple keyword mode". **IMPORTANT: default feed URLs in `DEFAULT_FEEDS` could NOT be verified from this sandbox (all outbound network blocked — Node fetch, curl, and WebFetch all fail); they are well-known patterns but must be verified on the user's machine via `feedErrors` in the response/status line.** X (Twitter) integration deliberately NOT implemented (paid API; see design doc — adapter boundary documented).
+- **Gentle news (added 2026-07-20, stages N1–N3 of `docs/gentle-news-design.md`):** News tab with interest-topic chips (local, `mintroom.news.v1`), lanes (interest / rumor / essential / general), confidence badges (公式/報道/噂/推測) + AI comment, hide-per-item, heavy items marked ⚠️ with softened summaries. Server: `server/news.mjs` (RSS2.0+Atom parse via `fast-xml-parser`; per-feed failure tolerance; 30-min cache; keyword fallback filter) + `classifyNews` batch LLM classification + `POST /api/news`. Opening the tab never starts a paid call; Refresh is the explicit trigger and says it may run one AI classification. Fallback UI distinguishes no key/provider error/invalid JSON/invalid model, and invalid classification JSON still records already-spent usage. RSS links are HTTP(S)-only on server and browser. **IMPORTANT: default feed URLs could not be verified from this sandbox; verify via `feedErrors` on the user's machine.** X integration remains deliberately unimplemented.
 - **AI diary (added 2026-07-20):** Diary tab where the assistant writes its own gentle entry about the master's day (design intent: a kind outside observer counters self-critical journaling). `POST /api/diary` + `buildDiaryPrompt`/`createDiaryEntry` in `server/openai.mjs` (prompt is a tested pure function; forbids guilt-tripping and invented events; absent days get a kind "didn't visit" entry). Snapshot = today's chat messages (chat messages now carry `ts` timestamps; pre-feature messages lack `ts` and are treated as not-today) + Life stats. Entries in localStorage `mintroom.diary.v1`, one per date, replaced only on successful regeneration; delete with confirm. Mock mode returns labeled mock entries.
+- **Local API cost estimate (added 2026-07-20):** successful Responses usage for Chat/Diary/News becomes `usageEvents[]`; Response ID dedupes. `mintroom.costs.v1` stores only model/tier/token/price/FX/time metadata, never prompt or answer text. Settings shows latest call, inclusive from/to range, this browser's all-time total, token details, manual USD/JPY fixed per new event, and visible storage errors. Missing FX remains USD, missing usage/pricing remains unavailable rather than ¥0. The UI explicitly says this is not the invoice/account-wide total.
 
 ## Mock/placeholder inventory (all labeled in the UI — nothing fakes results)
 
 - Chat replies when no API key is set (labeled "mock mode" in reply text and header status).
-- Moderation precheck toggle — does nothing yet (labeled "placeholder").
+- Safety mode, moderation precheck/behavior, and prompt cache key — disabled and labeled as placeholders until their server-side behavior exists.
 - Web search / image input / image generation / streaming toggles — disabled with "coming soon"/"next step" badges.
-- Prompt cache key field — stored locally, not sent.
 - Calendar events — sample data, view-only.
 - Real OpenAI call path (`createChatResponse`) is implemented but NOT yet exercised against the live API from this environment (no key available). The payload shape was verified by direct invocation of `buildResponsesPayload`.
 
@@ -57,8 +64,9 @@ npm test                        # unit tests (Node built-in node:test)
 
 | UI setting | API parameter | Status |
 |---|---|---|
-| Model | `model` | mapped |
+| Model | `model` | mapped; GPT-4o is fixed to `gpt-4o-2024-11-20`; unknown IDs fail before provider fetch |
 | Developer instructions + persona | `instructions` (persona appended as labeled style note) | mapped |
+| Server-selected built-in Skill Pack | `instructions` (fixed allowlist block between developer instructions and persona) | mapped for `/api/chat` only |
 | Chat history (trimmed by historyLimit) | `input` | mapped |
 | Temperature | `temperature` | mapped; omitted for models with `supportsTemperature: false` |
 | Top-p | `top_p` | mapped; same gating |
@@ -66,14 +74,23 @@ npm test                        # unit tests (Node built-in node:test)
 | Reasoning effort | `reasoning.effort` | mapped only when model `supportsReasoningEffort` and value ≠ default |
 | Response format JSON | `text.format = {type:"json_object"}` | mapped (advanced) |
 | Store responses | `store` (default **false** for privacy) | mapped |
+| (server-fixed) | `service_tier: "default"` | mapped; actual tier is recorded and non-default is not priced with Standard rates |
 | (server-generated) | `safety_identifier` | mapped; anonymous UUID, no PII |
-| Safety mode, moderation behavior, history limit, theme, tools toggles | — | intentionally app-only, not sent |
-| Moderation precheck, prompt cache key, streaming | — | placeholders, not sent |
+| Response metadata | `id`, `created_at`, `model`, `service_tier`, `usage` | returned as content-free `usageEvents[]`; exact local estimate in `server/costs.mjs` |
+| History limit, theme | — | intentionally app-only, not sent |
+| Safety mode, moderation precheck/behavior, prompt cache key, streaming, tools toggles | — | disabled placeholders, not sent |
 
 Not mapped yet (deliberately): `tools`, `stream`, `prompt_cache_key`, moderation endpoint, image content parts, structured-output JSON schema.
 
 ## Verification run
 
+- Stable GPT-4o + cost ledger 2026-07-20: final Node 24.13 in-process suite 88/88 pass; `npm run check` and `git diff --check` pass. Unit tests cover cached-token split, reasoning-token non-duplication, actual-model pricing, unknown model/tier/usage, content-free storage, defensive legacy-alias migration, dedupe, cross-tab merge, FX immutability and single-owner persistence, inclusive dates, stored timezone, corrupt ledger and sub-yen formatting. In-app browser verified fixed model label, mock non-accounting, fixture call `¥0.48 ($0.003)`, two-call total `¥0.96 ($0.006)`, one-day range `¥0.48`, invalid-range error and reload persistence. Dark mode at 360px had no horizontal overflow (`scrollWidth === clientWidth`). Real OpenAI API/invoice remains unverified (no key).
+- Safe news links 2026-07-20: full suite 55/55 pass; `npm run check` and `git diff --check` → pass. Unit fixtures cover HTTP(S), feed-relative RSS/Atom URLs, canonical IDs, obfuscated `javascript:`, `data:`, `file:`, `blob:`, `mailto:`, and malformed URLs. In-app browser verified safe links remain anchors while unsafe links are non-clickable spans both fresh and after localStorage-backed reload. Independent adversarial re-review found no P1/P2 bypass.
+- Copy button 2026-07-20: `npm run check` and `git diff --check` → pass. In-app browser verified exact body-only clipboard contents, success/reset, a forced clipboard rejection with visible failure/reset, immediate double-click guard, no button on pending/user messages, persistence after reload, and no size shift/overflow at 375px in dark mode.
+- Skill Packs 2026-07-20: `NODE_OPTIONS=--test-isolation=none npm test` → 51/51 pass; `npm run check` and `git diff --check` → pass. Tests cover common cooking requests, technical/metaphorical exclusions, writing/troubleshooting priority, opt-out variants, long/malformed input, fixed-ID reinjection, and diary/news non-application. HTTP mock smoke confirmed five public packs and GPT-4o (later pinned by task006), cooking/learning selection, opt-out, and settings-off. In-app browser confirmed a Japanese cooking request shows `🍳 料理`; settings catalog/toggle, dark theme, and 375px layout were also verified with no console warnings/errors.
+- Cross-site guard 2026-07-20: `NODE_OPTIONS=--test-isolation=none npm test` → 34/34 pass; `npm run check` → pass. With a fake key, HTTP smoke returned 415 for external `text/plain`, 403 for external Origin JSON and `Sec-Fetch-Site: cross-site`, without reaching OpenAI. `server.address()` confirmed the default listener is `127.0.0.1`.
+- PR-triage hardening 2026-07-20: `NODE_OPTIONS=--test-isolation=none npm test` → 30/30 pass, including localhost/LAN/public-host access tests and disabled-placeholder UI tests; `npm run check` → pass. Plain isolated `npm test` could not start child test processes in the Windows sandbox (`spawn EPERM`), so the same full suite was run in-process through the standard npm script.
+- HTTP smoke: localhost mock `/api/status` and `/api/chat` → 200; an API-key-configured request with public Host header → 403 before any provider call. In-app browser control was unavailable in this session, so the Safety card's dark-mode/mobile visual appearance remains unverified.
 - `npm test` → 24/24 pass (payload mapping, diary prompt, news: RSS/Atom fixture parsing, broken-XML tolerance, stable IDs, keyword block/interest lanes, classification prompt content, block-list overreach guard). News endpoint smoke-tested: graceful degradation with all feeds failing (ok:true + feedErrors), bad body → 400. Real RSS fetch and real LLM classification NOT verifiable from this sandbox (no outbound network, no API key).
 - (superseded) `npm test` → 16/16 pass (`server/openai.test.mjs`, Node built-in `node:test`, zero dependencies: 11 payload-mapping tests — capability gating, clamping, history trim — plus 5 diary-prompt tests). Diary endpoint smoke-tested via curl: visited/absent mock entries, missing snapshot → 400.
 - Brushup 2026-07-20 also fixed: Windows path handling (`fileURLToPath` instead of `URL.pathname`), percent-encoded static paths + hardened traversal guard (verified with curl `--path-as-is`, returns 403), 413 delivered for oversized bodies (was: connection killed before response), theme-toggle dead line, failed-send no longer clobbers newly typed input, model-fallback now persisted, "turns"→"messages" label honesty.
@@ -84,7 +101,8 @@ Not mapped yet (deliberately): `tools`, `stream`, `prompt_cache_key`, moderation
 
 ## Design docs
 
-- `docs/collaboration-protocol.md` + `docs/tasks/` (2026-07-20, **ACTIVE GUIDELINE**): Claude × Codex collaboration — role split (Claude: judgment/design/UI taste/final review; Codex at max reasoning: ticketed implementation, test mass-production, log analysis, A/B variant builds — usage explicitly not rationed in the user's environment), repo-as-communication-channel via task tickets with fixed format (scope, acceptance criteria, verification, report, cross-model review). Tickets 001 (copy button) and 002 (backup export/import) are ready for Codex. Codex must not edit ACTIVE guidelines directly (proposes via ticket report).
+- `docs/collaboration-protocol.md` + `docs/tasks/` (2026-07-20, **ACTIVE GUIDELINE**): Claude × Codex collaboration and ticket workflow. Tickets 001/003/004/005/006 are in REVIEW; ticket002 (backup export/import) remains TODO/review work. Codex must not edit ACTIVE guideline prose directly (only the living parity/smoke records when affected).
+- `docs/user-stability-audit.md` (2026-07-20): user-perspective audit of mutable aliases, silent fallback, implicit paid calls, cost/storage uncertainty and remaining priorities. Resolved and open findings are deliberately separate.
 - `AGENTS.md` (repo root, 2026-07-20, **ACTIVE GUIDELINE**): execution rules for all coding agents, written as countermeasures to publicly documented GPT-5.6 Sol failure modes (intent overreach / permissive instruction reading per OpenAI's system card, target substitution, credential mishandling, false completion claims, shallow confident planning, frontend animation/callout spam, stuck loops, stale context). Key inversions: default-deny permission model, honest-report obligation, 2-failure circuit breaker, re-read-before-edit.
 
 - `docs/ui-recipes.md` (2026-07-20, Japanese, **ACTIVE GUIDELINE**): practical UI craft recipes so any agent can reproduce the visual style the user likes — design-token discipline (no raw hex in components), two-radius system, 3-layer surface depth instead of borders, brand-color scarcity, the five button states incl. friendly empty states, one signature animation only, emoji-as-icon rules, microcopy tone, squint test, and an "ugliness catalog" of AI-UI anti-patterns. Grounded in real `public/styles.css` code.

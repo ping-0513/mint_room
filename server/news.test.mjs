@@ -2,7 +2,7 @@
 // (RSS取得そのものは実環境でしか検証できないため、パースと判断を固定する)。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseFeed, keywordClassify, FALLBACK_BLOCK_WORDS, prefsCacheKey, getCachedClassification, setCachedClassification } from "./news.mjs";
+import { parseFeed, normalizeNewsUrl, keywordClassify, FALLBACK_BLOCK_WORDS, prefsCacheKey, getCachedClassification, setCachedClassification } from "./news.mjs";
 import { buildNewsPrompt } from "./openai.mjs";
 
 const RSS_FIXTURE = `<?xml version="1.0"?>
@@ -17,6 +17,19 @@ const ATOM_FIXTURE = `<?xml version="1.0"?>
 <link rel="alternate" href="https://example.com/reddit1"/>
 <summary>no changelog but responses are way better</summary>
 <updated>2026-07-20T01:00:00Z</updated></entry>
+</feed>`;
+
+const URL_SAFETY_RSS_FIXTURE = `<?xml version="1.0"?>
+<rss version="2.0"><channel>
+<item><title>相対リンク</title><link>../article</link><description>safe</description></item>
+<item><title>scriptリンク</title><link>javascript:alert(1)</link><description>unsafe</description></item>
+<item><title>dataリンク</title><link>data:text/html,hello</link><description>unsafe</description></item>
+</channel></rss>`;
+
+const URL_SAFETY_ATOM_FIXTURE = `<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<entry><title>相対Atomリンク</title><link rel="alternate" href="/atom-article"/></entry>
+<entry><title>fileリンク</title><link rel="alternate" href="file:///tmp/private"/></entry>
 </feed>`;
 
 test("RSS2.0のフィードからタイトル・リンク・タグ除去済み要約が取れる", () => {
@@ -34,6 +47,37 @@ test("Atomフィード(Reddit形式)もパースできる", () => {
   assert.equal(items.length, 1);
   assert.match(items[0].title, /feels smarter/);
   assert.equal(items[0].link, "https://example.com/reddit1");
+});
+
+test("ニュースURLはHTTP(S)だけを正規化し、相対URLはフィードを基準に解決する", () => {
+  assert.equal(normalizeNewsUrl(" https://example.com/a "), "https://example.com/a");
+  assert.equal(normalizeNewsUrl("http://example.com"), "http://example.com/");
+  assert.equal(normalizeNewsUrl("../article", "https://feed.example/news/rss.xml"), "https://feed.example/article");
+  assert.equal(normalizeNewsUrl("//cdn.example/item", "https://feed.example/rss.xml"), "https://cdn.example/item");
+  for (const unsafe of [
+    "javascript:alert(1)",
+    " java\nscript:alert(1)",
+    "data:text/html,hello",
+    "file:///tmp/private",
+    "blob:https://example.com/id",
+    "mailto:test@example.com",
+    "http://[",
+    "",
+  ]) {
+    assert.equal(normalizeNewsUrl(unsafe, "https://feed.example/rss.xml"), null, unsafe);
+  }
+});
+
+test("RSSとAtomは危険URLを除外し、正規化URLから安定IDを作る", () => {
+  const rss = parseFeed(URL_SAFETY_RSS_FIXTURE, "RSS", "https://feed.example/news/rss.xml");
+  assert.deepEqual(rss.map((item) => item.link), ["https://feed.example/article"]);
+  const atom = parseFeed(URL_SAFETY_ATOM_FIXTURE, "Atom", "https://feed.example/feed.xml");
+  assert.deepEqual(atom.map((item) => item.link), ["https://feed.example/atom-article"]);
+  const canonical = parseFeed(
+    `<rss><channel><item><title>x</title><link>https://feed.example/atom-article</link></item></channel></rss>`,
+    "canonical"
+  )[0];
+  assert.equal(atom[0].id, canonical.id);
 });
 
 test("壊れたXMLでも例外にならず空配列が返る(タブ全体を壊さない)", () => {

@@ -687,11 +687,15 @@ function renderNewsItem(it) {
     renderNews();
   });
   head.append(badge, src, hide);
-  const title = document.createElement("a");
+  // 古いlocalStorageや将来の境界ミスも考慮し、表示直前にもWeb URLだけを許可する。
+  const safeLink = normalizeNewsUrl(it.link);
+  const title = document.createElement(safeLink ? "a" : "span");
   title.className = "news-title";
-  title.href = it.link;
-  title.target = "_blank";
-  title.rel = "noopener noreferrer";
+  if (safeLink) {
+    title.href = safeLink;
+    title.target = "_blank";
+    title.rel = "noopener noreferrer";
+  }
   // 重いニュースは予告を先に付ける(不意打ちさせない)
   title.textContent = (it.distress === "heavy" ? "⚠️ " : "") + it.title;
   card.append(head, title);
@@ -709,6 +713,16 @@ function renderNewsItem(it) {
     card.appendChild(c);
   }
   return card;
+}
+
+function normalizeNewsUrl(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const url = new URL(raw);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
 }
 
 async function loadNewsFeed(force) {

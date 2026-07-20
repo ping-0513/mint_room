@@ -192,7 +192,8 @@ details summary { cursor: pointer; color: var(--text-soft); margin: 8px 0; }
 .news-head .btn { margin-left: auto; }
 .news-source { font-size: 0.75rem; color: var(--text-soft); }
 .news-title { display: block; margin-top: 6px; color: var(--text); font-weight: 600; text-decoration: none; }
-.news-title:hover { color: var(--mint); }
+.news-title[href]:hover { color: var(--mint); }
+.news-title:not([href]) { cursor: default; }
 .news-summary { margin: 6px 0 0; font-size: 0.88rem; }
 .news-comment { margin: 6px 0 0; font-size: 0.85rem; color: var(--mint); }
 

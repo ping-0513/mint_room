@@ -33,8 +33,19 @@ const toArray = (x) => (Array.isArray(x) ? x : x == null ? [] : [x]);
 const textOf = (x) => (typeof x === "object" && x !== null ? String(x["#text"] ?? "") : String(x ?? ""));
 const stripTags = (s) => s.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 
+// RSSは外部入力なので、文字列prefixではなくURLパーサーで安全なWebリンクだけを残す。
+export function normalizeNewsUrl(raw, baseUrl) {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const url = baseUrl ? new URL(raw, baseUrl) : new URL(raw);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 /** RSS2.0 / Atom 両対応のパース。壊れたXMLは空配列(純関数・テスト対象)。 */
-export function parseFeed(xml, sourceName) {
+export function parseFeed(xml, sourceName, feedUrl) {
   try {
     const doc = parser.parse(xml);
     let raw = [];
@@ -59,6 +70,7 @@ export function parseFeed(xml, sourceName) {
       });
     }
     return raw
+      .map((it) => ({ ...it, link: normalizeNewsUrl(it.link, feedUrl) }))
       .filter((it) => it.title && it.link)
       .map((it) => ({
         // IDはURLのハッシュ: 再取得しても同一記事を同一IDにして分類キャッシュを効かせる
@@ -78,7 +90,7 @@ async function fetchOneFeed(feed) {
     headers: { "User-Agent": "mint-room/0.1 (personal assistant app)" },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return parseFeed(await res.text(), feed.source);
+  return parseFeed(await res.text(), feed.source, feed.url);
 }
 
 /**

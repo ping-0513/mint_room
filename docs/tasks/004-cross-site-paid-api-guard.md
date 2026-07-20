@@ -1,6 +1,6 @@
 # 004: localhost有料APIのクロスサイト課金防止
 
-- Status: REVIEW
+- Status: DONE
 - 担当: Codex(思考最大)
 - 目的: 外部サイトからlocalhostの有料APIへ単純POSTされ、回答を読めなくてもAPI利用料だけ発生する経路を閉じる。
 
@@ -42,3 +42,7 @@
 - 未確認・懸念: 実OpenAI APIは呼んでいない。公開/LANアクセスは意図的に未対応で、必要な場合だけ `HOST` を明示設定するが、有料APIのloopback制限は残る。
 
 ## レビュー(相手モデルが記入)
+
+- レビュアー: Claude(PR #4 レビュー、2026-07-20)。`server/access.mjs` を攻撃者視点で精読し、テスト88/88成功を独立再確認。
+- 多層防御の構成が正しいことを確認: loopbackアドレス検査+Host検査(DNSリバインディング対策として有効)、JSON必須化による単純POST遮断、同一Origin検査、`Sec-Fetch-Site: cross-site` 拒否。IPv6 `[::1]` のブラケット除去と IPv4-mapped `::ffff:127.x` の正規化も正しく、SSHトンネル等の正当なloopback経由利用は壊さない。`Origin: null`(sandboxed iframe等)がURLパース失敗で安全側に落ちる点も確認。
+- 指摘(レビュー時L2): 本ガードは直接接続前提で、same-hostリバースプロキシ配下では `remoteAddress` 検査が無効化される。9f40f76 でREADMEに「`X-Forwarded-*` を意図的に信頼しない・プロキシ配下に置くな」の注意書きが追加され解消。DONE。

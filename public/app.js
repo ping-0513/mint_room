@@ -8,6 +8,7 @@ const LS = {
   chat: "mintroom.chat.v1",
   life: "mintroom.life.v1",
   diary: "mintroom.diary.v1",
+  news: "mintroom.news.v1",
 };
 
 const DEFAULT_SETTINGS = {
@@ -36,9 +37,11 @@ let life = loadJSON(LS.life, {
   tasks: [], shopping: [], medication: [], // [{text, done}]
 });
 let diary = loadJSON(LS.diary, { entries: {} }); // entries keyed by "YYYY-MM-DD"
+let news = loadJSON(LS.news, { interests: [], hiddenIds: [], lastResult: null });
 let serverModels = null; // fetched from /api/status
 let sending = false;     // double-send guard
 let diaryBusy = false;   // double-generate guard
+let newsBusy = false;    // ニュース更新の連打ガード
 
 function loadJSON(key, fallback) {
   try {
@@ -64,6 +67,11 @@ $("tabs").addEventListener("click", (e) => {
   if (!btn) return;
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === btn));
   document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("active", p.id === `panel-${btn.dataset.tab}`));
+  // Newsタブを開いた時、情報が古ければ自動更新(30分ルール)
+  if (btn.dataset.tab === "news" && !newsBusy) {
+    const age = Date.now() - (news.lastResult?.fetchedAt ?? 0);
+    if (age > 30 * 60 * 1000) loadNewsFeed(false);
+  }
 });
 
 /* ---------- Chat ---------- */
@@ -453,6 +461,187 @@ async function generateDiary() {
 diaryWriteBtn.addEventListener("click", generateDiary);
 $("diaryDismissBtn").addEventListener("click", () => diaryError.classList.add("hidden"));
 
+/* ---------- やさしいニュース ---------- */
+// 設計: docs/gentle-news-design.md。取得・分類はサーバー(/api/news)、
+// 興味リストと「隠す」はこの端末のローカル保存のみ。
+const newsRefreshBtn = $("newsRefreshBtn"), newsStatus = $("newsStatus"),
+  newsError = $("newsError"), newsErrorText = $("newsErrorText");
+
+const CONFIDENCE_BADGES = {
+  confirmed: "🟢 公式",
+  reported: "🔵 報道",
+  rumor: "🟡 噂",
+  speculation: "🟣 推測",
+  unrated: "⚪ 未判定",
+};
+const LANE_HEADS = [
+  ["interest", "🩷 あなたの好き"],
+  ["rumor", "🟡 噂・体感(わくわく枠)"],
+  ["essential", "💡 知っとくといいこと"],
+  ["general", "📰 その他(簡易モード)"],
+];
+
+function renderNewsInterests() {
+  const wrap = $("newsInterestChips");
+  wrap.innerHTML = "";
+  for (const [i, topic] of news.interests.entries()) {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.textContent = topic;
+    const x = document.createElement("button");
+    x.className = "chip-x";
+    x.textContent = "✕";
+    x.title = "Remove";
+    x.addEventListener("click", () => {
+      news.interests.splice(i, 1);
+      save(LS.news, news);
+      renderNewsInterests();
+    });
+    chip.appendChild(x);
+    wrap.appendChild(chip);
+  }
+  if (!news.interests.length) {
+    const p = document.createElement("span");
+    p.className = "hint";
+    p.textContent = "No topics yet — add what you love.";
+    wrap.appendChild(p);
+  }
+}
+
+function renderNews() {
+  const wrap = $("newsList");
+  wrap.innerHTML = "";
+  const result = news.lastResult;
+  newsRefreshBtn.disabled = newsBusy;
+  if (newsBusy) {
+    newsStatus.textContent = "✨ fetching gentle news…";
+    // レイアウトを揺らさないためのプレースホルダ(master-preferences §2/§4)
+    const ph = document.createElement("p");
+    ph.className = "hint";
+    ph.textContent = "🌿 …";
+    wrap.appendChild(ph);
+    return;
+  }
+  if (!result) {
+    newsStatus.textContent = "";
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = "Press Refresh to fetch today's gentle news. 🌿";
+    wrap.appendChild(p);
+    return;
+  }
+  // fetchedAt=0 は「一度も取得成功していない」印なので経過時間を出さない
+  const ageMin = result.fetchedAt ? Math.round((Date.now() - result.fetchedAt) / 60000) : null;
+  newsStatus.textContent =
+    (result.classifiedBy === "keyword" ? "⚪ simple keyword mode (no API key) · " : "") +
+    (ageMin === null ? "no fetch succeeded yet" : ageMin > 0 ? `${ageMin} min ago` : "just now") +
+    (result.feedErrors?.length ? ` · ${result.feedErrors.length} feed(s) unavailable` : "");
+  const visible = result.items.filter((it) => !news.hiddenIds.includes(it.id));
+  let shown = 0;
+  for (const [lane, head] of LANE_HEADS) {
+    const laneItems = visible.filter((it) => it.lane === lane);
+    if (!laneItems.length) continue;
+    const h = document.createElement("h3");
+    h.className = "news-lane-head";
+    h.textContent = head;
+    wrap.appendChild(h);
+    for (const it of laneItems) {
+      wrap.appendChild(renderNewsItem(it));
+      shown++;
+    }
+  }
+  if (!shown) {
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = "今日は特にないよ。静かな日 🌿";
+    wrap.appendChild(p);
+  }
+}
+
+function renderNewsItem(it) {
+  const card = document.createElement("div");
+  card.className = "news-item" + (it.distress === "heavy" ? " news-heavy" : "");
+  const head = document.createElement("div");
+  head.className = "news-head";
+  const badge = document.createElement("span");
+  badge.className = `badge conf-${it.confidence}`;
+  badge.textContent = CONFIDENCE_BADGES[it.confidence] ?? CONFIDENCE_BADGES.unrated;
+  const src = document.createElement("span");
+  src.className = "news-source";
+  src.textContent = it.source;
+  const hide = document.createElement("button");
+  hide.className = "btn small ghost";
+  hide.textContent = "隠す";
+  hide.title = "この記事を表示しない(フィルタ学習の材料になります)";
+  hide.addEventListener("click", () => {
+    news.hiddenIds.push(it.id);
+    if (news.hiddenIds.length > 500) news.hiddenIds = news.hiddenIds.slice(-300);
+    save(LS.news, news);
+    renderNews();
+  });
+  head.append(badge, src, hide);
+  const title = document.createElement("a");
+  title.className = "news-title";
+  title.href = it.link;
+  title.target = "_blank";
+  title.rel = "noopener noreferrer";
+  // 重いニュースは予告を先に付ける(不意打ちさせない)
+  title.textContent = (it.distress === "heavy" ? "⚠️ " : "") + it.title;
+  card.append(head, title);
+  const summary = it.gentle_summary ?? it.summary;
+  if (summary) {
+    const p = document.createElement("p");
+    p.className = "news-summary";
+    p.textContent = summary;
+    card.appendChild(p);
+  }
+  if (it.ai_comment) {
+    const c = document.createElement("p");
+    c.className = "news-comment";
+    c.textContent = `🌿 ${it.ai_comment}`;
+    card.appendChild(c);
+  }
+  return card;
+}
+
+async function loadNewsFeed(force) {
+  if (newsBusy) return; // 連打ガード
+  newsBusy = true;
+  newsError.classList.add("hidden");
+  renderNews();
+  try {
+    const res = await fetch("/api/news", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ settings, force, prefs: { interests: news.interests } }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!data?.ok) throw new Error(data?.error || `Request failed (HTTP ${res.status})`);
+    news.lastResult = data;
+    save(LS.news, news);
+  } catch (err) {
+    // 失敗しても前回の結果は消さない(古い情報でも空より優しい)
+    newsErrorText.textContent = err.message;
+    newsError.classList.remove("hidden");
+  } finally {
+    newsBusy = false;
+    renderNews();
+  }
+}
+
+newsRefreshBtn.addEventListener("click", () => loadNewsFeed(true));
+$("newsDismissBtn").addEventListener("click", () => newsError.classList.add("hidden"));
+$("newsInterestForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const input = $("newsInterestInput");
+  const t = input.value.trim();
+  if (!t || news.interests.includes(t)) return;
+  news.interests.push(t);
+  save(LS.news, news);
+  input.value = "";
+  renderNewsInterests();
+});
+
 /* ---------- Init ---------- */
 applyTheme();
 bindSettings();
@@ -460,4 +649,6 @@ renderChat();
 initLife();
 renderCalendar();
 renderDiary();
+renderNewsInterests();
+renderNews();
 loadServerStatus();

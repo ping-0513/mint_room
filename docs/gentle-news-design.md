@@ -1,6 +1,6 @@
 # やさしいニュース — 設計メモ
 
-Status: IDEAS ONLY(実装約束ではない設計メモ)。実装時は `docs/master-preferences.md` と `docs/ux-design-testing-principles.md`(ACTIVE GUIDELINE)に従うこと。関連: `docs/external-integrations-and-habit-design.md`(外部に任せる原則)、`docs/4o-thinking-orchestration.md`(朝のカード・routine_watch)。
+Status: **N1〜N3 実装済み(2026-07-20)**。N4(朝カード統合・👍👎学習)と X アダプタは未実装。実装は `server/news.mjs` / `server/openai.mjs`(classifyNews)/ `/api/news` / News タブ。既定フィードURLは開発環境から実在確認できていない(ネットワーク遮断のため)— 初回はローカルで `feedErrors` を見て `DEFAULT_FEEDS` を直すこと。実装時は `docs/master-preferences.md` と `docs/ux-design-testing-principles.md`(ACTIVE GUIDELINE)に従うこと。関連: `docs/external-integrations-and-habit-design.md`(外部に任せる原則)、`docs/4o-thinking-orchestration.md`(朝のカード・routine_watch)。
 
 ## 0. 解きたい問題(マスターの言葉から)
 
@@ -24,6 +24,26 @@ Status: IDEAS ONLY(実装約束ではない設計メモ)。実装時は `docs/ma
   - インフラ: 大規模障害・交通・通信(使っているサービスに関わるもの)
   - 社会の大きな節目: 選挙結果・歴史的出来事(事実レベルの短い要約で)
 - **選ばない基準**: 殺人・暴力事件の詳細報道は「全員が知るべき情報」ではない(知って行動が変わらないため)。ワイドショー的関心事は載せない。
+
+### 車線1.5: 噂・体感レーン(確度ラベルつき)
+
+マスターの要望: 「このモデル急に賢くなった感じするけどアプデ情報なくね?」レベルの噂・体感のわくわくも欲しい。ただし嘘は教えたくない。
+
+- **噂を排除するのではなく、確度を正直にラベルする**:
+  - `confirmed 🟢 公式` — 公式発表・一次ソースあり
+  - `reported 🔵 報道` — 複数メディアが報道
+  - `rumor 🟡 噂` — コミュニティの噂・体感報告(ソース明示)
+  - `speculation 🟣 推測` — 憶測・分析記事
+- 各記事にAIの短いひとことコメントを付ける: 「公式のアプデ情報は出てないけど、体感報告が増えてる。楽しみに待とう」のような、**確度を踏まえた誠実なわくわくの共有**。断定しない・出典を示す・後で違ったら違ったと言える書き方。
+- 噂レーンの情報源: Reddit(r/LocalLLaMA 等)は公式RSSが無料で使える合法的なコミュニティソース。テックブログRSSも有効。
+
+### X(Twitter)連携について(正直な現状)
+
+「モデルがXの中を見られるように」という要望への現実:
+
+- **XのAPIは読み取りが有料プラン限定**(無料枠では実質読めない)。スクレイピングや非公式ミラーは利用規約違反+不安定なので、このアプリではやらない(嘘をつかない・壊れない原則)。
+- 対応方針: (1) 設定に「X API キー(有料)」のプレースホルダとアダプタ境界だけ用意し、キーを入れた人だけ有効化できる形を将来実装する。(2) 「モデルが賢くなった気がする」系の体感・噂は、実は Reddit・テックブログRSSでかなり拾える — まずこちらで噂レーンを成立させる。
+- X連携を実装する時は `server/news.mjs` に xAdapter を足すだけで済む構造にしておく(取得元が増えても分類パイプラインは共通)。
 
 ### やさしいフィルタ(核心機能)
 

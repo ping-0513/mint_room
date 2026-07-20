@@ -195,6 +195,83 @@ export async function createDiaryEntry(settings, snapshot, safetyIdentifier) {
   return createChatResponse(diarySettings, [{ role: "user", content: userContent }], safetyIdentifier);
 }
 
+// ---------- やさしいニュース分類 ----------
+// 設計: docs/gentle-news-design.md
+// バッチ1回の呼び出しで全記事を分類する(コスト管理)。出力は内部データであり
+// ユーザーにそのまま見せる文章は gentle_summary と ai_comment のみ。
+
+const NEWS_INSTRUCTIONS = [
+  "You classify news items for a gentle news reader used by a person who avoids distressing news but wants to stay connected to the world.",
+  "For EACH item return: lane, distress, gentle_summary, confidence, ai_comment, matched_topics.",
+  "- lane: 'interest' (matches the user's registered topics), 'essential' (things everyone should know judged by real-life impact: disasters, recalls, policy/money changes, major outages — NOT sensational crime), 'rumor' (community buzz / unconfirmed but fun, e.g. 'this model suddenly feels smarter'), or 'drop' (violent crime detail, gore, abuse, suicide reporting, tragedy detail — unless it matches a registered interest, then keep but soften).",
+  "- distress: 'none' | 'mild' | 'heavy'. 'heavy' items that are essential must still be included with a fact-level softened summary (no graphic detail); the reader decides whether to open the link.",
+  "- gentle_summary: 1-2 sentences in Japanese, fact-level, no graphic detail, no editorializing. For interest-matched dark topics (e.g. cybercrime) focus on tactics/defenses, never victim tragedy detail.",
+  "- confidence: 'confirmed' (official announcement / primary source), 'reported' (multiple outlets), 'rumor' (community reports), 'speculation' (analysis/guess). Never present rumor as fact.",
+  "- ai_comment: one short honest Japanese sentence sharing excitement or context WITH the confidence made clear (e.g. 公式発表はまだないけど体感報告が増えてるよ。楽しみだね). May be null.",
+  "- matched_topics: subset of the user's registered topics.",
+  'Return STRICT JSON: {"items":[{"id":"...","lane":"...","distress":"...","gentle_summary":"...","confidence":"...","ai_comment":"...","matched_topics":[]}]} — one entry per input id, no extra text.',
+].join("\n");
+
+const NEWS_LANES = ["interest", "essential", "rumor", "drop"];
+const NEWS_DISTRESS = ["none", "mild", "heavy"];
+const NEWS_CONFIDENCE = ["confirmed", "reported", "rumor", "speculation"];
+
+/** ニュース分類プロンプトの純関数(テスト対象)。 */
+export function buildNewsPrompt(items, prefs = {}) {
+  const lines = [
+    `User's registered interest topics: ${JSON.stringify(prefs.interests ?? [])}`,
+    `User's blocked categories (drop or soften): ${JSON.stringify(prefs.blockedCategories ?? ["violent crime detail", "gore", "abuse", "suicide reporting"])}`,
+    "Items:",
+  ];
+  for (const it of items) {
+    lines.push(JSON.stringify({ id: it.id, source: it.source, title: it.title, summary: it.summary }));
+  }
+  return { instructions: NEWS_INSTRUCTIONS, userContent: lines.join("\n") };
+}
+
+/**
+ * LLMバッチ分類。キー無し・失敗・不正JSONはすべて { ok: false } で返し、
+ * 呼び出し側(server.mjs)がキーワード簡易フィルタに黙ってフォールバックする。
+ */
+export async function classifyNews(settings, items, prefs, safetyIdentifier) {
+  if (!process.env.OPENAI_API_KEY) return { ok: false, reason: "no_key" };
+  if (!items.length) return { ok: true, classifications: new Map() };
+  const { instructions, userContent } = buildNewsPrompt(items, prefs);
+  const result = await createChatResponse(
+    {
+      model: settings?.model,
+      developerInstructions: instructions,
+      temperature: 0.3, // 分類なので低温度
+      maxOutputTokens: 4000,
+      historyLimit: 1,
+      store: false,
+      responseFormat: "json",
+    },
+    [{ role: "user", content: userContent }],
+    safetyIdentifier
+  );
+  if (!result.ok) return { ok: false, reason: result.error };
+  try {
+    const parsed = JSON.parse(result.text);
+    const map = new Map();
+    for (const c of parsed.items ?? []) {
+      // 不正な値は握りつぶさず項目ごとに落とす(部分的に使える結果は使う)
+      if (typeof c?.id !== "string") continue;
+      map.set(c.id, {
+        lane: NEWS_LANES.includes(c.lane) ? c.lane : "general",
+        distress: NEWS_DISTRESS.includes(c.distress) ? c.distress : "unrated",
+        confidence: NEWS_CONFIDENCE.includes(c.confidence) ? c.confidence : "unrated",
+        gentle_summary: typeof c.gentle_summary === "string" ? c.gentle_summary.slice(0, 300) : null,
+        ai_comment: typeof c.ai_comment === "string" ? c.ai_comment.slice(0, 200) : null,
+        matched_topics: Array.isArray(c.matched_topics) ? c.matched_topics.filter((t) => typeof t === "string") : [],
+      });
+    }
+    return { ok: true, classifications: map };
+  } catch {
+    return { ok: false, reason: "invalid_json" };
+  }
+}
+
 // Responses API: prefer output_text convenience field; fall back to walking output items.
 function extractOutputText(data) {
   if (typeof data?.output_text === "string" && data.output_text) return data.output_text;

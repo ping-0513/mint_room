@@ -7,7 +7,8 @@ import { readFile } from "node:fs/promises";
 import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { MODELS, DEFAULT_MODEL, createChatResponse, createDiaryEntry } from "./server/openai.mjs";
+import { MODELS, DEFAULT_MODEL, createChatResponse, createDiaryEntry, classifyNews } from "./server/openai.mjs";
+import { getNews, keywordClassify, classificationCache } from "./server/news.mjs";
 
 const PORT = Number(process.env.PORT) || 3000;
 // fileURLToPath keeps this working on Windows too (URL.pathname would not).
@@ -68,6 +69,46 @@ const server = http.createServer(async (req, res) => {
       }
       const result = await createDiaryEntry(settings, snapshot, SAFETY_IDENTIFIER);
       return sendJSON(res, result.ok ? 200 : 502, result);
+    }
+
+    if (url.pathname === "/api/news" && req.method === "POST") {
+      // やさしいニュース(docs/gentle-news-design.md)。
+      // RSS取得→LLM分類(キーがあれば)→無ければキーワード簡易モード。
+      const body = await readBody(req);
+      let parsed;
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        return sendJSON(res, 400, { ok: false, error: "Invalid JSON body." });
+      }
+      const { settings = {}, prefs = {}, force = false } = parsed ?? {};
+      const feedResult = await getNews(Boolean(force));
+      // 未分類の記事だけをLLMに渡す(分類キャッシュでコスト管理)
+      const unclassified = feedResult.items.filter((it) => !classificationCache.has(it.id));
+      const llm = await classifyNews(settings, unclassified, prefs, SAFETY_IDENTIFIER);
+      if (llm.ok && llm.classifications) {
+        for (const [id, c] of llm.classifications) classificationCache.set(id, c);
+      }
+      let items;
+      let classifiedBy;
+      if (llm.ok || (unclassified.length === 0 && feedResult.items.some((it) => classificationCache.has(it.id)))) {
+        classifiedBy = "llm";
+        items = feedResult.items
+          .map((it) => ({ ...it, ...(classificationCache.get(it.id) ?? { lane: "general", distress: "unrated", confidence: "unrated", gentle_summary: null, ai_comment: null, matched_topics: [] }) }))
+          .filter((it) => it.lane !== "drop");
+      } else {
+        // キー無し・分類失敗時の正直なフォールバック(UIに簡易モードと表示される)
+        classifiedBy = "keyword";
+        items = keywordClassify(feedResult.items, prefs);
+      }
+      return sendJSON(res, 200, {
+        ok: true,
+        classifiedBy,
+        fetchedAt: feedResult.fetchedAt,
+        fromCache: feedResult.fromCache,
+        feedErrors: feedResult.errors,
+        items,
+      });
     }
 
     // Static files

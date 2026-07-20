@@ -15,6 +15,7 @@
       <button class="tab" data-tab="life">🌱 Life</button>
       <button class="tab" data-tab="calendar">📅 Calendar</button>
       <button class="tab" data-tab="diary">📔 Diary</button>
+      <button class="tab" data-tab="news">📰 News</button>
       <button class="tab" data-tab="images">🖼️ Images</button>
       <button class="tab" data-tab="search">🔍 Search</button>
       <button class="tab" data-tab="settings">⚙️ Settings</button>
@@ -92,6 +93,32 @@
         <button id="diaryDismissBtn" class="btn small ghost">Dismiss</button>
       </div>
       <div id="diaryEntries"></div>
+    </div>
+  </main>
+
+  <!-- NEWS -->
+  <main class="panel" id="panel-news">
+    <div class="card">
+      <h2>📰 Gentle news</h2>
+      <p class="hint">News without the parts that hurt: your interests, things worth knowing (picked by life impact, not sensationalism), and fun rumors with honest confidence labels. The filter is AI-based and not perfect — use “hide” to teach it.</p>
+      <details class="news-prefs">
+        <summary>🩷 Interest topics</summary>
+        <div class="chips" id="newsInterestChips"></div>
+        <form class="list-add" id="newsInterestForm">
+          <input type="text" id="newsInterestInput" placeholder="e.g. 新作LLM / 鬼滅の刃 / コスメ">
+          <button class="btn small">＋</button>
+        </form>
+        <p class="hint">Stored on this device. Sent only for classification. Interests can override the gentle filter (e.g. cybercrime news arrives focused on tactics/defenses, never tragedy detail).</p>
+      </details>
+      <div class="diary-actions">
+        <button class="btn primary" id="newsRefreshBtn">Refresh</button>
+        <span class="hint" id="newsStatus"></span>
+      </div>
+      <div class="chat-error hidden" id="newsError">
+        <span id="newsErrorText"></span>
+        <button id="newsDismissBtn" class="btn small ghost">Dismiss</button>
+      </div>
+      <div id="newsList" aria-live="polite"></div>
     </div>
   </main>
 

@@ -74,6 +74,10 @@ body {
 .msg-skills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
 .msg-skills .badge { background: var(--surface); color: var(--text); }
 .skill-context { color: var(--text); font-size: 0.72rem; }
+.msg-actions { display: flex; justify-content: flex-end; margin-top: 4px; }
+.copy-message-btn { inline-size: 7.25rem; }
+.copy-message-btn:disabled { opacity: 1; cursor: default; }
+.copy-message-btn:focus-visible { outline: 2px solid var(--mint-glow); outline-offset: 2px; }
 .msg.pending { color: var(--text-soft); font-style: italic; }
 .msg .spark { animation: twinkle 1.2s ease-in-out infinite; display: inline-block; }
 @keyframes twinkle { 0%,100% { opacity: 0.35; } 50% { opacity: 1; } }

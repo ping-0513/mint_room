@@ -115,6 +115,12 @@ function renderChat() {
       }
       if (skills.childElementCount > 1) div.appendChild(skills);
     }
+    if (m.role === "assistant") {
+      const actions = document.createElement("div");
+      actions.className = "msg-actions";
+      actions.appendChild(createCopyButton(m.content));
+      div.appendChild(actions);
+    }
     chatLog.appendChild(div);
   }
   if (sending) {
@@ -125,6 +131,34 @@ function renderChat() {
   }
   chatLog.scrollTop = chatLog.scrollHeight;
   updateChatButtons();
+}
+
+function createCopyButton(messageText) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "btn small ghost copy-message-btn";
+  button.textContent = "Copy";
+  button.title = "Copy this answer";
+  button.setAttribute("aria-live", "polite");
+  button.setAttribute("aria-atomic", "true");
+  button.addEventListener("click", async () => {
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = "Copying…";
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
+      await navigator.clipboard.writeText(String(messageText ?? ""));
+      button.textContent = "✓ copied";
+    } catch {
+      button.textContent = "Copy failed";
+    }
+    // ボタンごとに復帰を管理し、連打や別メッセージのコピーと干渉させない。
+    window.setTimeout(() => {
+      button.textContent = "Copy";
+      button.disabled = false;
+    }, 1500);
+  });
+  return button;
 }
 
 function updateChatButtons() {

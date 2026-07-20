@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-mint-50 text-slate-800 antialiased;
+}
+
+html.dark body {
+  @apply bg-slate-950 text-mint-50;
+}
+
+::selection {
+  @apply bg-mint-300/60;
+}
+
+/* Subtle sparkle accent used behind the chat header. Kept simple and cheap. */
+.sparkle-bg {
+  background-image: radial-gradient(circle at 15% 20%, rgba(140, 232, 208, 0.35), transparent 40%),
+    radial-gradient(circle at 85% 0%, rgba(135, 217, 238, 0.3), transparent 45%);
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  @apply bg-mint-200 dark:bg-slate-700 rounded-full;
+}

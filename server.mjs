@@ -4,12 +4,14 @@
 
 import http from "node:http";
 import { readFile } from "node:fs/promises";
-import { extname, join, normalize } from "node:path";
+import { extname, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { MODELS, DEFAULT_MODEL, createChatResponse } from "./server/openai.mjs";
 
 const PORT = Number(process.env.PORT) || 3000;
-const PUBLIC_DIR = new URL("./public/", import.meta.url).pathname;
+// fileURLToPath keeps this working on Windows too (URL.pathname would not).
+const PUBLIC_DIR = fileURLToPath(new URL("./public/", import.meta.url));
 
 // Stable, privacy-preserving safety identifier for this server instance.
 // Deliberately NOT derived from email/name/any personal data.
@@ -54,9 +56,16 @@ const server = http.createServer(async (req, res) => {
 
     // Static files
     let path = url.pathname === "/" ? "/index.html" : url.pathname;
-    path = normalize(path).replace(/^(\.\.[/\\])+/, "");
-    const filePath = join(PUBLIC_DIR, path);
-    if (!filePath.startsWith(PUBLIC_DIR)) return sendJSON(res, 403, { error: "Forbidden" });
+    try {
+      path = decodeURIComponent(path); // allow non-ASCII filenames
+    } catch {
+      return sendJSON(res, 400, { error: "Bad path" });
+    }
+    const filePath = resolve(join(PUBLIC_DIR, path));
+    // resolve() collapses any ../ segments; reject anything outside public/.
+    if (!filePath.startsWith(resolve(PUBLIC_DIR) + sep)) {
+      return sendJSON(res, 403, { error: "Forbidden" });
+    }
     try {
       const data = await readFile(filePath);
       res.writeHead(200, { "Content-Type": MIME[extname(filePath)] ?? "application/octet-stream" });
@@ -65,7 +74,9 @@ const server = http.createServer(async (req, res) => {
       sendJSON(res, 404, { error: "Not found" });
     }
   } catch (err) {
-    sendJSON(res, 500, { ok: false, error: "Server error." });
+    const status = err?.message === "Body too large" ? 413 : 500;
+    if (!res.headersSent) sendJSON(res, status, { ok: false, error: status === 413 ? "Request body too large." : "Server error." });
+    else res.end();
     console.error(err);
   }
 });
@@ -81,8 +92,11 @@ function readBody(req, limit = 1_000_000) {
     req.on("data", (chunk) => {
       data += chunk;
       if (data.length > limit) {
+        // Discard the rest instead of destroying the socket, so the
+        // 413 response can actually reach the client.
+        req.removeAllListeners("data");
+        req.resume();
         reject(new Error("Body too large"));
-        req.destroy();
       }
     });
     req.on("end", () => resolve(data));

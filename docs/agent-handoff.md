@@ -32,7 +32,7 @@ No test framework exists yet.
 - Server boots; `GET /` serves the app; `GET /api/status` and `POST /api/chat` verified via curl (mock mode).
 - Chat: input clears on send, double-send guarded (`sending` flag + disabled buttons), loading indicator, error banner with Retry/Dismiss, failed sends roll back and restore the input text.
 - **Regenerate** re-requests a reply for the same last user turn: it splices off the trailing assistant reply, never re-appends the user message, and restores the old reply if the retry fails.
-- Chat history persists in localStorage (`mintroom.chat.v1`); only the last `historyLimit` turns are sent to the API.
+- Chat history persists in localStorage (`mintroom.chat.v1`); only the last `historyLimit` messages (not turn pairs) are sent to the API — UI label says "messages".
 - Settings persist in localStorage (`mintroom.settings.v1`), grouped: General/Appearance, Model, Behavior, Safety, Tools.
 - Model-dependent gating: reasoning-effort select and temperature/top-p disable per model capability flags served by `/api/status`.
 - Life tab: tasks / shopping / medication checklists + wake/sleep times, localStorage-persisted (`mintroom.life.v1`).
@@ -69,6 +69,8 @@ Not mapped yet (deliberately): `tools`, `stream`, `prompt_cache_key`, moderation
 
 ## Verification run
 
+- `npm test` → 11/11 pass (first unit tests, added 2026-07-20 brushup: `server/openai.test.mjs` covers payload mapping, capability gating, clamping, history trim via Node's built-in `node:test`; zero dependencies).
+- Brushup 2026-07-20 also fixed: Windows path handling (`fileURLToPath` instead of `URL.pathname`), percent-encoded static paths + hardened traversal guard (verified with curl `--path-as-is`, returns 403), 413 delivered for oversized bodies (was: connection killed before response), theme-toggle dead line, failed-send no longer clobbers newly typed input, model-fallback now persisted, "turns"→"messages" label honesty.
 - `npm run check` → pass (node --check on server.mjs, server/openai.mjs, public/app.js).
 - Server smoke test via curl: `/api/status` 200 with model list; `/api/chat` 200 mock reply; invalid JSON → 400; `/`, `/app.js`, `/styles.css` → 200 with correct content types.
 - `buildResponsesPayload` invoked directly: verified o4-mini omits temperature/top_p, includes `reasoning.effort`, history trimming, instructions merging, `store:false`, `safety_identifier`.

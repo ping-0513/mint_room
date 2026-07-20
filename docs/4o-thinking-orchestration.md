@@ -183,7 +183,7 @@ Skip it for: lightweight chat, emotional reassurance, quick UI actions, very sho
 
 Latency strategy — pick per mode: `thinking_response` blocks (show the soft "thinking…" state; acceptable because the user asked a hard question); `assisted_chat` and `routine_watch` never block (fast answer first; refinement lands as cached guidance for the *next* turn). Optional later: fast-answer-then-refine in one turn (needs streaming; see handoff next-steps).
 
-Cost strategy: reasoning called only on triggers; summaries cached with TTL and reused; compact structured outputs (`max_output_tokens` small, e.g. 400–800); per-session call budget.
+Cost strategy: reasoning called only on triggers; summaries cached with TTL and reused; compact structured outputs (`max_output_tokens` small, e.g. 300–800); per-session call budget.
 
 Failure strategy: any reasoning failure (timeout, API error, malformed JSON) → log at debug level, fall back to `fast_chat` silently. The user sees a normal answer, never an error, unless the primary call itself failed (existing error banner + retry covers that).
 

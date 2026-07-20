@@ -50,7 +50,6 @@ const $ = (id) => document.getElementById(id);
 function applyTheme() {
   const pref = settings.theme;
   const dark = pref === "dark" || (pref === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
-  document.documentElement.toggleAttribute("data-theme", false);
   if (dark) document.documentElement.setAttribute("data-theme", "dark");
   else document.documentElement.removeAttribute("data-theme");
 }
@@ -135,7 +134,8 @@ async function sendMessage() {
   } catch (err) {
     // Roll back the optimistic user turn so Retry re-sends cleanly.
     chat.messages.pop();
-    chatInput.value = text;
+    // Restore the failed text, but never clobber something newly typed.
+    if (!chatInput.value.trim()) chatInput.value = text;
     showError(err.message, sendMessage);
   } finally {
     sending = false;
@@ -234,7 +234,10 @@ async function loadServerStatus() {
       opt.textContent = m.label;
       sel.appendChild(opt);
     }
-    if (!data.models.some((m) => m.id === settings.model)) settings.model = data.defaultModel;
+    if (!data.models.some((m) => m.id === settings.model)) {
+      settings.model = data.defaultModel;
+      save(LS.settings, settings);
+    }
     sel.value = settings.model;
     $("keyStatus").textContent = data.hasApiKey ? "🔑 API key set" : "🌱 mock mode (no API key)";
     $("apiKeyHelp").innerHTML = data.hasApiKey

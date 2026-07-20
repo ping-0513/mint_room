@@ -478,7 +478,7 @@ const LANE_HEADS = [
   ["interest", "🩷 あなたの好き"],
   ["rumor", "🟡 噂・体感(わくわく枠)"],
   ["essential", "💡 知っとくといいこと"],
-  ["general", "📰 その他(簡易モード)"],
+  ["general", "📰 その他"],
 ];
 
 function renderNewsInterests() {

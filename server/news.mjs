@@ -129,5 +129,25 @@ export function keywordClassify(items, prefs = {}) {
     });
 }
 
-// LLM分類の結果キャッシュ(記事ID→分類)。同じ記事を二度分類しない=コスト管理。
+// LLM分類の結果キャッシュ。同じ記事を二度分類しない=コスト管理。
+// キーは「記事ID:興味リストのハッシュ」— 興味が変わったら同じ記事でも
+// レーン判定が変わるべきなので、記事IDだけをキーにすると古い分類が残ってしまう。
 export const classificationCache = new Map();
+const CLASSIFICATION_CACHE_MAX = 2000;
+
+/** 興味リスト→キャッシュキー用ハッシュ(純関数・テスト対象)。 */
+export function prefsCacheKey(prefs = {}) {
+  return createHash("sha1").update(JSON.stringify(prefs.interests ?? [])).digest("hex").slice(0, 8);
+}
+
+export function getCachedClassification(itemId, prefsKey) {
+  return classificationCache.get(`${itemId}:${prefsKey}`);
+}
+
+export function setCachedClassification(itemId, prefsKey, classification) {
+  classificationCache.set(`${itemId}:${prefsKey}`, classification);
+  // 無限に育てない(古い挿入順から捨てる)
+  while (classificationCache.size > CLASSIFICATION_CACHE_MAX) {
+    classificationCache.delete(classificationCache.keys().next().value);
+  }
+}

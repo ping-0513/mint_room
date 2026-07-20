@@ -242,7 +242,7 @@ export async function classifyNews(settings, items, prefs, safetyIdentifier) {
       model: settings?.model,
       developerInstructions: instructions,
       temperature: 0.3, // 分類なので低温度
-      maxOutputTokens: 4000,
+      maxOutputTokens: 8000, // 40件×1件あたり最大200トークン程度の余裕を確保
       historyLimit: 1,
       store: false,
       responseFormat: "json",

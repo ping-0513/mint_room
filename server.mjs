@@ -8,7 +8,7 @@ import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { MODELS, DEFAULT_MODEL, createChatResponse, createDiaryEntry, classifyNews } from "./server/openai.mjs";
-import { getNews, keywordClassify, classificationCache } from "./server/news.mjs";
+import { getNews, keywordClassify, prefsCacheKey, getCachedClassification, setCachedClassification } from "./server/news.mjs";
 
 const PORT = Number(process.env.PORT) || 3000;
 // fileURLToPath keeps this working on Windows too (URL.pathname would not).
@@ -83,18 +83,23 @@ const server = http.createServer(async (req, res) => {
       }
       const { settings = {}, prefs = {}, force = false } = parsed ?? {};
       const feedResult = await getNews(Boolean(force));
-      // 未分類の記事だけをLLMに渡す(分類キャッシュでコスト管理)
-      const unclassified = feedResult.items.filter((it) => !classificationCache.has(it.id));
-      const llm = await classifyNews(settings, unclassified, prefs, SAFETY_IDENTIFIER);
+      // 分類キャッシュは「記事ID×興味リスト」単位。興味を変えると再分類される
+      const prefsKey = prefsCacheKey(prefs);
+      const unclassified = feedResult.items.filter((it) => !getCachedClassification(it.id, prefsKey));
+      // 一括分類は40件まで(出力トークン上限内に収める。残りは次回更新時に分類され、
+      // それまでは general レーンで表示される)
+      const batch = unclassified.slice(0, 40);
+      const llm = await classifyNews(settings, batch, prefs, SAFETY_IDENTIFIER);
       if (llm.ok && llm.classifications) {
-        for (const [id, c] of llm.classifications) classificationCache.set(id, c);
+        for (const [id, c] of llm.classifications) setCachedClassification(id, prefsKey, c);
       }
       let items;
       let classifiedBy;
-      if (llm.ok || (unclassified.length === 0 && feedResult.items.some((it) => classificationCache.has(it.id)))) {
+      const anyClassified = feedResult.items.some((it) => getCachedClassification(it.id, prefsKey));
+      if (llm.ok || anyClassified) {
         classifiedBy = "llm";
         items = feedResult.items
-          .map((it) => ({ ...it, ...(classificationCache.get(it.id) ?? { lane: "general", distress: "unrated", confidence: "unrated", gentle_summary: null, ai_comment: null, matched_topics: [] }) }))
+          .map((it) => ({ ...it, ...(getCachedClassification(it.id, prefsKey) ?? { lane: "general", distress: "unrated", confidence: "unrated", gentle_summary: null, ai_comment: null, matched_topics: [] }) }))
           .filter((it) => it.lane !== "drop");
       } else {
         // キー無し・分類失敗時の正直なフォールバック(UIに簡易モードと表示される)

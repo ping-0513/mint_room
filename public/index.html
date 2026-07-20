@@ -199,6 +199,13 @@
       </section>
 
       <section class="card">
+        <h2>🧩 Skill Packs <span class="badge">auto</span></h2>
+        <label class="row"><input type="checkbox" id="set-skillPacksEnabled"> Use a relevant Skill Pack automatically</label>
+        <p class="hint">The server checks only your latest request and applies at most one built-in guide. It does not add tools or extra API calls. The response shows which pack was used.</p>
+        <div class="skill-pack-catalog" id="skillPackCatalog" aria-live="polite"></div>
+      </section>
+
+      <section class="card">
         <h2>🛡️ Safety</h2>
         <p class="hint">App-level safety controls are planned. OpenAI's own policy enforcement always applies.</p>
         <label>Safety mode <span class="badge">placeholder</span>

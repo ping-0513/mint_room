@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import { MODELS, DEFAULT_MODEL, createChatResponse, createDiaryEntry, classifyNews } from "./server/openai.mjs";
 import { getNews, keywordClassify, prefsCacheKey, getCachedClassification, setCachedClassification } from "./server/news.mjs";
 import { isJSONContentType, isTrustedPaidProviderRequest } from "./server/access.mjs";
+import { listSkillPacks } from "./server/skills.mjs";
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || "127.0.0.1";
@@ -67,6 +68,7 @@ export const server = http.createServer(async (req, res) => {
         hasApiKey: Boolean(process.env.OPENAI_API_KEY),
         models: MODELS,
         defaultModel: DEFAULT_MODEL,
+        skillPacks: listSkillPacks(),
       });
     }
 
@@ -82,7 +84,7 @@ export const server = http.createServer(async (req, res) => {
       if (!Array.isArray(messages) || messages.length === 0) {
         return sendJSON(res, 400, { ok: false, error: "messages must be a non-empty array." });
       }
-      const result = await createChatResponse(settings, messages, SAFETY_IDENTIFIER);
+      const result = await createChatResponse(settings, messages, SAFETY_IDENTIFIER, { autoSkills: true });
       return sendJSON(res, result.ok ? 200 : 502, result);
     }
 

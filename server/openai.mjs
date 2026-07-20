@@ -3,12 +3,15 @@
 // build payloads; they send app-level settings + messages to /api/chat and
 // this module maps them to the OpenAI Responses API.
 
+import { getSkillInstructionBlocks, selectSkillPack, toActiveSkill } from "./skills.mjs";
+
 // Model list is intentionally configurable here, not hardcoded in the request
 // function. Capability flags gate model-dependent settings (the UI mirrors
 // these flags via GET /api/status).
 export const MODELS = [
   { id: "gpt-4.1-mini", label: "GPT-4.1 mini (fast, default)", supportsTemperature: true, supportsReasoningEffort: false },
   { id: "gpt-4.1", label: "GPT-4.1", supportsTemperature: true, supportsReasoningEffort: false },
+  { id: "gpt-4o", label: "GPT-4o", supportsTemperature: true, supportsReasoningEffort: false },
   { id: "gpt-4o-mini", label: "GPT-4o mini", supportsTemperature: true, supportsReasoningEffort: false },
   { id: "o4-mini", label: "o4-mini (reasoning)", supportsTemperature: false, supportsReasoningEffort: true },
 ];
@@ -29,6 +32,8 @@ export function findModel(id) {
  *  - settings.developerInstructions + settings.persona
  *                              -> instructions (persona is appended as a
  *                                 clearly separated app-level style note)
+ *  - activeSkillIds (server-selected fixed allowlist)
+ *                              -> instructions (built-in skill block)
  *  - messages[]                -> input (role/content list; trimmed by
  *                                 settings.historyLimit, app-only)
  *  - settings.temperature      -> temperature (omitted for models that do not
@@ -51,13 +56,17 @@ export function findModel(id) {
  *    before generation. Not implemented in this pass.
  *  - promptCacheKey: developer placeholder, not sent.
  */
-export function buildResponsesPayload(settings, messages, safetyIdentifier) {
+export function buildResponsesPayload(settings = {}, messages = [], safetyIdentifier, activeSkillIds = []) {
+  settings = normalizeSettings(settings);
+  messages = Array.isArray(messages) ? messages : [];
   const model = findModel(settings.model) || findModel(DEFAULT_MODEL);
 
   const instructionParts = [];
   if (typeof settings.developerInstructions === "string" && settings.developerInstructions.trim()) {
     instructionParts.push(settings.developerInstructions.trim());
   }
+  // Skill IDはサーバー固定レジストリで再解決し、内部指示だけを開発者指示として挿入する。
+  instructionParts.push(...getSkillInstructionBlocks(activeSkillIds));
   if (typeof settings.persona === "string" && settings.persona.trim()) {
     instructionParts.push(`Assistant style/persona note (app-level): ${settings.persona.trim()}`);
   }
@@ -95,10 +104,21 @@ export function buildResponsesPayload(settings, messages, safetyIdentifier) {
   return payload;
 }
 
+// 通常チャットだけがautoSkillsを明示し、日記・ニュースなど内部用途は既定で無効になる。
+export function resolveActiveSkills(settings = {}, messages = [], options = {}) {
+  settings = normalizeSettings(settings);
+  if (options.autoSkills !== true || settings.skillPacksEnabled === false) return [];
+  const pack = selectSkillPack(messages);
+  return pack ? [toActiveSkill(pack)] : [];
+}
+
 /** Call OpenAI (non-streaming). Returns { ok, text?, error? }. Never throws. */
-export async function createChatResponse(settings, messages, safetyIdentifier) {
+export async function createChatResponse(settings = {}, messages = [], safetyIdentifier, options = {}) {
+  settings = normalizeSettings(settings);
+  messages = Array.isArray(messages) ? messages : [];
   const apiKey = process.env.OPENAI_API_KEY;
-  const payload = buildResponsesPayload(settings, messages, safetyIdentifier);
+  const activeSkills = resolveActiveSkills(settings, messages, options);
+  const payload = buildResponsesPayload(settings, messages, safetyIdentifier, activeSkills.map((skill) => skill.id));
 
   if (!apiKey) {
     // Mock mode so the UI is fully testable without a key. Clearly labeled.
@@ -106,6 +126,7 @@ export async function createChatResponse(settings, messages, safetyIdentifier) {
     return {
       ok: true,
       mock: true,
+      activeSkills,
       text:
         `🌱 (mock mode — no OPENAI_API_KEY set)\n\nYou said: "${truncate(lastUser?.content ?? "", 200)}"\n\n` +
         `This is a placeholder reply from model "${payload.model}". Set OPENAI_API_KEY and restart the server for real responses.`,
@@ -121,11 +142,11 @@ export async function createChatResponse(settings, messages, safetyIdentifier) {
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       const msg = data?.error?.message || `OpenAI API error (HTTP ${res.status})`;
-      return { ok: false, error: msg };
+      return { ok: false, error: msg, activeSkills };
     }
-    return { ok: true, text: extractOutputText(data) };
+    return { ok: true, text: extractOutputText(data), activeSkills };
   } catch (err) {
-    return { ok: false, error: `Network error reaching OpenAI: ${err?.message ?? err}` };
+    return { ok: false, error: `Network error reaching OpenAI: ${err?.message ?? err}`, activeSkills };
   }
 }
 
@@ -299,4 +320,8 @@ function clampInt(v, min, max, fallback) {
 function truncate(s, n) {
   s = String(s);
   return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
+function normalizeSettings(settings) {
+  return settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
 }

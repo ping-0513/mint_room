@@ -27,6 +27,7 @@ const DEFAULT_SETTINGS = {
   store: false,
   promptCacheKey: "",
   historyLimit: 20,
+  skillPacksEnabled: true,
 };
 
 let settings = loadJSON(LS.settings, DEFAULT_SETTINGS);
@@ -39,6 +40,8 @@ let life = loadJSON(LS.life, {
 let diary = loadJSON(LS.diary, { entries: {} }); // entries keyed by "YYYY-MM-DD"
 let news = loadJSON(LS.news, { interests: [], hiddenIds: [], lastResult: null });
 let serverModels = null; // fetched from /api/status
+let serverSkillPacks = []; // /api/statusから受け取る公開メタデータだけを保持する
+let skillPackCatalogState = "loading"; // loading / ready / error を分け、誤ったoffline表示を避ける
 let sending = false;     // double-send guard
 let diaryBusy = false;   // double-generate guard
 let newsBusy = false;    // ニュース更新の連打ガード
@@ -90,7 +93,28 @@ function renderChat() {
   for (const m of chat.messages) {
     const div = document.createElement("div");
     div.className = `msg ${m.role}`;
-    div.textContent = m.content;
+    const content = document.createElement("div");
+    content.className = "msg-content";
+    content.textContent = m.content;
+    div.appendChild(content);
+    if (m.role === "assistant" && Array.isArray(m.activeSkills) && m.activeSkills.length) {
+      const skills = document.createElement("div");
+      skills.className = "msg-skills";
+      const context = document.createElement("span");
+      context.className = "skill-context";
+      context.textContent = "Skill Pack:";
+      skills.appendChild(context);
+      for (const skill of m.activeSkills.slice(0, 1)) {
+        if (!skill || typeof skill.id !== "string" || typeof skill.label !== "string") continue;
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.dataset.skillId = skill.id;
+        const catalogPack = serverSkillPacks.find((pack) => pack.id === skill.id);
+        badge.textContent = `${catalogPack?.emoji ?? "🧩"} ${skill.label}`;
+        skills.appendChild(badge);
+      }
+      if (skills.childElementCount > 1) div.appendChild(skills);
+    }
     chatLog.appendChild(div);
   }
   if (sending) {
@@ -124,7 +148,10 @@ async function callChatAPI(messages) {
   });
   const data = await res.json().catch(() => null);
   if (!data?.ok) throw new Error(data?.error || `Request failed (HTTP ${res.status})`);
-  return data.text;
+  return {
+    text: String(data.text ?? ""),
+    activeSkills: Array.isArray(data.activeSkills) ? data.activeSkills.slice(0, 1) : [],
+  };
 }
 
 // Send a new user message. Input clears only on successful send-start;
@@ -140,7 +167,7 @@ async function sendMessage() {
   renderChat();
   try {
     const reply = await callChatAPI(chat.messages);
-    chat.messages.push({ role: "assistant", content: reply, ts: Date.now() });
+    chat.messages.push({ role: "assistant", content: reply.text, activeSkills: reply.activeSkills, ts: Date.now() });
     save(LS.chat, chat);
   } catch (err) {
     // Roll back the optimistic user turn so Retry re-sends cleanly.
@@ -167,7 +194,7 @@ async function regenerate() {
   renderChat();
   try {
     const reply = await callChatAPI(chat.messages);
-    chat.messages.push({ role: "assistant", content: reply, ts: Date.now() });
+    chat.messages.push({ role: "assistant", content: reply.text, activeSkills: reply.activeSkills, ts: Date.now() });
     save(LS.chat, chat);
   } catch (err) {
     chat.messages.push(...removed); // restore previous reply on failure
@@ -200,6 +227,7 @@ const SETTING_FIELDS = [
   ["temperature", "set-temperature", "number"], ["topP", "set-topP", "number"],
   ["maxOutputTokens", "set-maxOutputTokens", "number"], ["responseFormat", "set-responseFormat"],
   ["store", "set-store", "checkbox"], ["historyLimit", "set-historyLimit", "number"],
+  ["skillPacksEnabled", "set-skillPacksEnabled", "checkbox"],
 ];
 
 function bindSettings() {
@@ -214,6 +242,46 @@ function bindSettings() {
       if (key === "theme") applyTheme();
       if (key === "model") updateModelDependentUI();
     });
+  }
+}
+
+function renderSkillPackCatalog() {
+  const catalog = $("skillPackCatalog");
+  catalog.innerHTML = "";
+  if (skillPackCatalogState === "loading") {
+    const loading = document.createElement("span");
+    loading.className = "hint";
+    loading.textContent = "Loading built-in Skill Packs…";
+    catalog.appendChild(loading);
+    return;
+  }
+  if (!serverSkillPacks.length) {
+    const empty = document.createElement("span");
+    empty.className = "hint";
+    empty.textContent = skillPackCatalogState === "error"
+      ? "Skill Pack list is unavailable while the server is offline."
+      : "This server did not report any built-in Skill Packs.";
+    catalog.appendChild(empty);
+    return;
+  }
+  for (const pack of serverSkillPacks) {
+    const item = document.createElement("div");
+    item.className = "skill-pack-item";
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = `${pack.emoji ?? "🧩"} ${pack.label ?? pack.id}`;
+    const description = document.createElement("span");
+    description.textContent = pack.description ?? "";
+    item.append(badge, description);
+    catalog.appendChild(item);
+  }
+}
+
+// status到着時は会話全体を再描画せず、表示中のSkill絵文字だけを差し替える。
+function refreshVisibleSkillBadges() {
+  for (const badge of document.querySelectorAll(".msg-skills .badge[data-skill-id]")) {
+    const pack = serverSkillPacks.find((candidate) => candidate.id === badge.dataset.skillId);
+    if (pack) badge.textContent = `${pack.emoji ?? "🧩"} ${pack.label}`;
   }
 }
 
@@ -235,6 +303,8 @@ async function loadServerStatus() {
     const res = await fetch("/api/status");
     const data = await res.json();
     serverModels = data.models;
+    serverSkillPacks = Array.isArray(data.skillPacks) ? data.skillPacks : [];
+    skillPackCatalogState = "ready";
     const sel = $("set-model");
     sel.innerHTML = "";
     for (const m of data.models) {
@@ -252,9 +322,14 @@ async function loadServerStatus() {
     $("apiKeyHelp").innerHTML = data.hasApiKey
       ? "OpenAI API key is configured on the server."
       : "No OpenAI API key is set. The chat runs in <strong>mock mode</strong>. To enable real responses: set <code>OPENAI_API_KEY</code> in the server environment (see <code>.env.example</code>) and restart. The key stays server-side and is never sent to this page.";
+    renderSkillPackCatalog();
+    refreshVisibleSkillBadges();
     updateModelDependentUI();
   } catch {
     $("keyStatus").textContent = "⚠️ server unreachable";
+    serverSkillPacks = [];
+    skillPackCatalogState = "error";
+    renderSkillPackCatalog();
   }
 }
 
@@ -644,6 +719,7 @@ $("newsInterestForm").addEventListener("submit", (e) => {
 applyTheme();
 bindSettings();
 renderChat();
+renderSkillPackCatalog();
 initLife();
 renderCalendar();
 renderDiary();

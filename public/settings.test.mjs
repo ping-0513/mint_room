@@ -19,3 +19,12 @@ test("無効化したSafety設定をJavaScriptが再び保存対象にしない"
     assert.doesNotMatch(fields, new RegExp(id));
   }
 });
+
+test("Skill Packの自動選択は利用者が無効化でき、内部指示は画面に置かない", () => {
+  assert.match(html, /id="set-skillPacksEnabled"/);
+  assert.doesNotMatch(html, /id="set-skillPacksEnabled"[^>]*disabled/);
+  const fields = app.slice(app.indexOf("const SETTING_FIELDS"), app.indexOf("function bindSettings"));
+  assert.match(fields, /skillPacksEnabled/);
+  assert.match(app, /data\.activeSkills/);
+  assert.doesNotMatch(html, /Built-in Skill Pack:/);
+});

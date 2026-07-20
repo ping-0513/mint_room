@@ -1,12 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildResponsesPayload, buildDiaryPrompt, findModel, MODELS, DEFAULT_MODEL } from "./openai.mjs";
+import {
+  buildResponsesPayload,
+  buildDiaryPrompt,
+  classifyNews,
+  createDiaryEntry,
+  findModel,
+  resolveActiveSkills,
+  MODELS,
+  DEFAULT_MODEL,
+} from "./openai.mjs";
 
 const msgs = (n) =>
   Array.from({ length: n }, (_, i) => ({ role: i % 2 ? "assistant" : "user", content: `m${i}` }));
 
 test("default model is in MODELS", () => {
   assert.ok(findModel(DEFAULT_MODEL));
+  assert.ok(findModel("gpt-4o"));
 });
 
 test("unknown model falls back to default", () => {
@@ -50,6 +60,44 @@ test("instructions merge developer + persona; both optional", () => {
   assert.match(both.instructions, /persona note.*gentle/);
   const none = buildResponsesPayload({ model: DEFAULT_MODEL }, msgs(1));
   assert.ok(!("instructions" in none));
+});
+
+test("server-selected Skill Pack is inserted between developer instructions and persona", () => {
+  const prompt = "鶏肉のレシピを教えて";
+  const payload = buildResponsesPayload(
+    { model: DEFAULT_MODEL, developerInstructions: "Be brief.", persona: "gentle" },
+    [{ role: "user", content: prompt }],
+    undefined,
+    ["cooking"]
+  );
+  assert.ok(payload.instructions.indexOf("Be brief.") < payload.instructions.indexOf("Built-in Skill Pack: 料理"));
+  assert.ok(payload.instructions.indexOf("Built-in Skill Pack: 料理") < payload.instructions.indexOf("persona note"));
+  assert.doesNotMatch(payload.instructions, new RegExp(prompt));
+});
+
+test("unknown or client-forged Skill IDs cannot force instruction injection", () => {
+  const payload = buildResponsesPayload({ model: DEFAULT_MODEL }, msgs(1), undefined, ["made-up"]);
+  assert.ok(!("instructions" in payload));
+  const forged = resolveActiveSkills(
+    { skillPacksEnabled: true, skillIds: ["cooking"] },
+    [{ role: "user", content: "こんにちは" }],
+    { autoSkills: true }
+  );
+  assert.deepEqual(forged, []);
+});
+
+test("auto Skill Packs require the chat-only option and respect the off switch", () => {
+  const messages = [{ role: "user", content: "夕飯のレシピを考えて" }];
+  assert.deepEqual(resolveActiveSkills({}, messages), []);
+  const active = resolveActiveSkills({}, messages, { autoSkills: true });
+  assert.deepEqual(active, [{ id: "cooking", label: "料理" }]);
+  assert.ok(!("description" in active[0]));
+  assert.deepEqual(resolveActiveSkills({ skillPacksEnabled: false }, messages, { autoSkills: true }), []);
+});
+
+test("null settings cannot crash routing or payload construction", () => {
+  assert.equal(resolveActiveSkills(null, [{ role: "user", content: "レシピを教えて" }], { autoSkills: true })[0]?.id, "cooking");
+  assert.equal(buildResponsesPayload(null, msgs(1)).model, DEFAULT_MODEL);
 });
 
 test("json response format maps to text.format", () => {
@@ -120,4 +168,50 @@ test("diary conversation excerpt is capped at 30 messages and 500 chars each", (
 test("diary prompt survives a missing life object", () => {
   const { userContent } = buildDiaryPrompt({ date: "2026-07-20", visitedToday: false });
   assert.match(userContent, /tasks done 0\/0/);
+});
+
+test("日記とニュース分類は会話用Skill Packを実送信payloadへ混ぜない", async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const previousFetch = globalThis.fetch;
+  const payloads = [];
+  try {
+    process.env.OPENAI_API_KEY = "sk-test-never-sent";
+    globalThis.fetch = async (_url, init) => {
+      const payload = JSON.parse(init.body);
+      payloads.push(payload);
+      const outputText = payload.text?.format?.type === "json_object" ? '{"items":[]}' : "diary entry";
+      return new Response(JSON.stringify({ output_text: outputText }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    const diaryResult = await createDiaryEntry(
+      {},
+      {
+        date: "2026-07-20",
+        visitedToday: true,
+        conversation: [{ role: "user", content: "夕飯のレシピを考えて" }],
+        life: {},
+      },
+      "mint-room-test"
+    );
+    const newsResult = await classifyNews(
+      {},
+      [{ id: "recipe-news", source: "fixture", title: "人気レシピ", summary: "料理の作り方" }],
+      { interests: ["料理"] },
+      "mint-room-test"
+    );
+
+    assert.equal(diaryResult.ok, true);
+    assert.equal(newsResult.ok, true);
+    assert.equal(payloads.length, 2);
+    for (const payload of payloads) {
+      assert.doesNotMatch(payload.instructions, /Built-in Skill Pack:/);
+    }
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
 });

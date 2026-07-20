@@ -1,6 +1,6 @@
 # Agent handoff — mint room
 
-Status: FOUNDATION COMPLETE; CROSS-SITE-RESISTANT LOCAL PAID-API GUARD + HONEST SAFETY PLACEHOLDERS UNIT/HTTP VERIFIED, BROWSER QA PENDING (2026-07-20). This file is the source of truth for the next agent.
+Status: FOUNDATION COMPLETE; LOCAL PAID-API GUARD + BUILT-IN CONVERSATION SKILL PACKS UNIT/HTTP/BROWSER VERIFIED (2026-07-20). This file is the source of truth for the next agent.
 
 ## Current repo state
 
@@ -13,6 +13,7 @@ Status: FOUNDATION COMPLETE; CROSS-SITE-RESISTANT LOCAL PAID-API GUARD + HONEST 
 - `server.mjs` — HTTP server: serves `public/`, `POST /api/chat` (server-side OpenAI boundary), `GET /api/status` (key-configured flag + model list; never exposes the key). Generates a per-instance anonymous `safety_identifier` (UUID-based, no PII). Binds to `127.0.0.1` by default; `HOST` is an explicit opt-in override.
 - `server/access.mjs`, `server/access.test.mjs` — pure paid-provider request guard and regression tests. It requires loopback+local Host, JSON content, same Origin when present, and rejects browser-declared cross-site requests.
 - `server/openai.mjs` — **the single OpenAI adapter.** All payload construction is in `buildResponsesPayload()`. Model list + capability flags in `MODELS`. Mock mode when `OPENAI_API_KEY` is unset (clearly labeled in replies). Also holds the diary prompt/generation (`buildDiaryPrompt`/`createDiaryEntry`) and news classification (`buildNewsPrompt`/`classifyNews`).
+- `server/skills.mjs`, `server/skills.test.mjs` — fixed, server-owned conversation Skill Pack registry and deterministic latest-user-message router. It can apply at most one of cooking/planning/writing/learning/troubleshooting; unknown/client-forged IDs never inject instructions.
 - `server/news.mjs` — RSS2.0/Atom fetch+parse (fast-xml-parser), feed cache, keyword fallback filter, classification cache helpers.
 - `server/openai.test.mjs`, `server/news.test.mjs` — unit tests (`npm test`).
 - `AGENTS.md`, `docs/collaboration-protocol.md`, `docs/tasks/` — agent rules and the Claude×Codex ticket workflow.
@@ -40,6 +41,7 @@ npm test                        # unit tests (Node built-in node:test)
 - Chat history persists in localStorage (`mintroom.chat.v1`); only the last `historyLimit` messages (not turn pairs) are sent to the API — UI label says "messages".
 - Settings persist in localStorage (`mintroom.settings.v1`), grouped: General/Appearance, Model, Behavior, Safety, Tools.
 - Model-dependent gating: reasoning-effort select and temperature/top-p disable per model capability flags served by `/api/status`.
+- Conversation Skill Packs: normal chat only can automatically select at most one fixed pack (cooking/planning/writing/learning/troubleshooting), inject its fixed guidance into Responses `instructions`, and show the selected ID/display name on the answer. Settings can disable routing. Diary/news never opt in. `gpt-4o` is available without changing the default model.
 - Life tab: tasks / shopping / medication checklists + wake/sleep times, localStorage-persisted (`mintroom.life.v1`).
 - Calendar: month grid, prev/next, today highlight, **sample events only** (labeled in UI).
 - Theme: light/dark/system, mint identity kept in dark mode.
@@ -60,6 +62,7 @@ npm test                        # unit tests (Node built-in node:test)
 |---|---|---|
 | Model | `model` | mapped |
 | Developer instructions + persona | `instructions` (persona appended as labeled style note) | mapped |
+| Server-selected built-in Skill Pack | `instructions` (fixed allowlist block between developer instructions and persona) | mapped for `/api/chat` only |
 | Chat history (trimmed by historyLimit) | `input` | mapped |
 | Temperature | `temperature` | mapped; omitted for models with `supportsTemperature: false` |
 | Top-p | `top_p` | mapped; same gating |
@@ -75,6 +78,7 @@ Not mapped yet (deliberately): `tools`, `stream`, `prompt_cache_key`, moderation
 
 ## Verification run
 
+- Skill Packs 2026-07-20: `NODE_OPTIONS=--test-isolation=none npm test` → 51/51 pass; `npm run check` and `git diff --check` → pass. Tests cover common cooking requests, technical/metaphorical exclusions, writing/troubleshooting priority, opt-out variants, long/malformed input, fixed-ID reinjection, and diary/news non-application. HTTP mock smoke confirmed five public packs, `gpt-4o`, cooking/learning selection, opt-out, and settings-off. In-app browser confirmed a Japanese cooking request shows `🍳 料理`; settings catalog/toggle, dark theme, and 375px layout were also verified with no console warnings/errors.
 - Cross-site guard 2026-07-20: `NODE_OPTIONS=--test-isolation=none npm test` → 34/34 pass; `npm run check` → pass. With a fake key, HTTP smoke returned 415 for external `text/plain`, 403 for external Origin JSON and `Sec-Fetch-Site: cross-site`, without reaching OpenAI. `server.address()` confirmed the default listener is `127.0.0.1`.
 - PR-triage hardening 2026-07-20: `NODE_OPTIONS=--test-isolation=none npm test` → 30/30 pass, including localhost/LAN/public-host access tests and disabled-placeholder UI tests; `npm run check` → pass. Plain isolated `npm test` could not start child test processes in the Windows sandbox (`spawn EPERM`), so the same full suite was run in-process through the standard npm script.
 - HTTP smoke: localhost mock `/api/status` and `/api/chat` → 200; an API-key-configured request with public Host header → 403 before any provider call. In-app browser control was unavailable in this session, so the Safety card's dark-mode/mobile visual appearance remains unverified.
